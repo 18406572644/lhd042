@@ -248,9 +248,14 @@ const editPlant = (plant: Plant) => {
   showAddDialog.value = true
 }
 
-const deletePlant = (id: string) => {
-  store.deletePlant(id)
-  ElMessage.success('已删除')
+const deletePlant = (id: string, password?: string) => {
+  const success = store.deletePlant(id, password)
+  if (success) {
+    ElMessage.success('已删除')
+  } else {
+    ElMessage.error('删除失败，请检查密码')
+  }
+  return success
 }
 
 const handleDeletePlant = (plant: Plant) => {
@@ -268,10 +273,12 @@ const handleDeletePlant = (plant: Plant) => {
   }).catch(() => {})
 }
 
-const confirmDeletePlant = () => {
-  deletePlant(deletingPlantId.value)
-  showDeleteConfirm.value = false
-  deletingPlantId.value = ''
+const confirmDeletePlant = (password: string) => {
+  const success = deletePlant(deletingPlantId.value, password)
+  if (success) {
+    showDeleteConfirm.value = false
+    deletingPlantId.value = ''
+  }
 }
 
 const cancelForm = () => {

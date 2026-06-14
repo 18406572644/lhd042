@@ -421,18 +421,25 @@ const deleteReminder = (id: string) => {
   }
 }
 
-const confirmDelete = () => {
+const confirmDelete = (password: string) => {
+  let success = false
   if (deletingRecordId.value) {
-    store.deleteRecord(deletingRecordId.value)
-    deletingRecordId.value = ''
+    success = store.deleteRecord(deletingRecordId.value, password)
+    if (success) deletingRecordId.value = ''
   } else if (deletingPhotoId.value) {
-    store.deletePhoto(deletingPhotoId.value)
-    deletingPhotoId.value = ''
+    success = store.deletePhoto(deletingPhotoId.value, password)
+    if (success) deletingPhotoId.value = ''
   } else if (deletingReminderId.value) {
-    store.deleteReminder(deletingReminderId.value)
-    deletingReminderId.value = ''
+    success = store.deleteReminder(deletingReminderId.value, password)
+    if (success) deletingReminderId.value = ''
   }
-  showDeleteConfirm.value = false
+  
+  if (success) {
+    showDeleteConfirm.value = false
+    ElMessage.success('已删除')
+  } else {
+    ElMessage.error('删除失败，请检查密码')
+  }
 }
 
 onMounted(() => {

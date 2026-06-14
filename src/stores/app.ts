@@ -293,20 +293,28 @@ export const useAppStore = defineStore('app', {
     },
 
     verifyMasterPassword(password: string): boolean {
-      if (!this.masterPasswordHash) return true
-      
-      const [storedHash, storedSalt] = this.masterPasswordHash.split(':')
-      if (!storedSalt) {
-        const result = hashPassword(password)
-        return result.hash === this.masterPasswordHash
+      if (!this.masterPasswordHash) {
+        return false
       }
-      
+
+      const [storedHash, storedSalt] = this.masterPasswordHash.split(':')
+      if (!storedHash || !storedSalt) {
+        return false
+      }
+
       const isValid = verifyPassword(password, storedHash, storedSalt)
       if (isValid) {
         this.isLocked = false
         this.updateActivity()
       }
       return isValid
+    },
+
+    requireMasterPassword(password: string): boolean {
+      if (!this.hasMasterPassword) {
+        return true
+      }
+      return this.verifyMasterPassword(password)
     },
 
     changeMasterPassword(oldPassword: string, newPassword: string, hint?: string): boolean {
@@ -475,7 +483,14 @@ export const useAppStore = defineStore('app', {
       }
     },
 
-    deletePlant(id: string) {
+    deletePlant(id: string, password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '删除植物时密码验证失败', { plantId: id })
+          return false
+        }
+      }
+
       const plant = this.plants.find(p => p.id === id)
       const plantName = plant?.name || '未知植物'
       this.plants = this.plants.filter(p => p.id !== id)
@@ -487,6 +502,7 @@ export const useAppStore = defineStore('app', {
       this.saveData(PHOTOS_KEY, this.photos)
       this.saveData(REMINDERS_KEY, this.reminders)
       this.addOperationLog('plant.delete', `删除了植物：${plantName}`, { plantId: id, plantName })
+      return true
     },
 
     addRecord(record: Omit<CareRecord, 'id' | 'createdAt'>) {
@@ -507,10 +523,18 @@ export const useAppStore = defineStore('app', {
       }
     },
 
-    deleteRecord(id: string) {
+    deleteRecord(id: string, password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '删除养护记录时密码验证失败', { recordId: id })
+          return false
+        }
+      }
+
       this.careRecords = this.careRecords.filter(r => r.id !== id)
       this.saveData(CARE_KEY, this.careRecords)
       this.addOperationLog('record.delete', `删除了养护记录`, { recordId: id })
+      return true
     },
 
     addPhoto(photo: Omit<PhotoRecord, 'id' | 'createdAt'>) {
@@ -522,10 +546,18 @@ export const useAppStore = defineStore('app', {
       return newPhoto
     },
 
-    deletePhoto(id: string) {
+    deletePhoto(id: string, password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '删除照片时密码验证失败', { photoId: id })
+          return false
+        }
+      }
+
       this.photos = this.photos.filter(p => p.id !== id)
       this.saveData(PHOTOS_KEY, this.photos)
       this.addOperationLog('photo.delete', `删除了照片`, { photoId: id })
+      return true
     },
 
     addReminder(reminder: Omit<Reminder, 'id' | 'completed' | 'createdAt'>) {
@@ -618,9 +650,18 @@ export const useAppStore = defineStore('app', {
       idsCopy.forEach(id => this.completeReminder(id, feedback))
     },
 
-    batchDeleteReminders(ids: string[]) {
+    batchDeleteReminders(ids: string[], password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '批量删除提醒时密码验证失败', { count: ids.length })
+          return false
+        }
+      }
+
       this.reminders = this.reminders.filter(r => !ids.includes(r.id))
       this.saveData(REMINDERS_KEY, this.reminders)
+      this.addOperationLog('reminder.batch_delete', `批量删除了 ${ids.length} 条提醒`, { count: ids.length })
+      return true
     },
 
     batchPostponeReminders(ids: string[], hours?: number, days?: number) {
@@ -628,11 +669,19 @@ export const useAppStore = defineStore('app', {
       idsCopy.forEach(id => this.postponeReminder(id, hours, days))
     },
 
-    deleteReminder(id: string) {
+    deleteReminder(id: string, password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '删除提醒时密码验证失败', { reminderId: id })
+          return false
+        }
+      }
+
       const reminder = this.reminders.find(r => r.id === id)
       this.reminders = this.reminders.filter(r => r.id !== id)
       this.saveData(REMINDERS_KEY, this.reminders)
       this.addOperationLog('reminder.delete', `删除了提醒：${reminder?.title || '未命名'}`, { reminderId: id })
+      return true
     },
 
     addKnowledge(article: Omit<KnowledgeArticle, 'id' | 'createdAt'>) {
@@ -741,7 +790,14 @@ export const useAppStore = defineStore('app', {
       localStorage.removeItem(DIARY_PASSWORD_KEY)
     },
 
-    clearAllData() {
+    clearAllData(password?: string) {
+      if (this.hasMasterPassword) {
+        if (!password || !this.verifyMasterPassword(password)) {
+          this.addOperationLog('security.auth_failed', '清除所有数据时密码验证失败')
+          return false
+        }
+      }
+
       const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY]
       keys.forEach(key => localStorage.removeItem(key))
       this.plants = []
@@ -751,6 +807,7 @@ export const useAppStore = defineStore('app', {
       this.knowledgeArticles = []
       this.diaryEntries = []
       this.addOperationLog('data.clear', '清除了所有数据')
+      return true
     },
 
     exportData() {

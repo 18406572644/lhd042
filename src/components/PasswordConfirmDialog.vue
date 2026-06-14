@@ -4,7 +4,7 @@
     :title="title"
     width="420px"
     :close-on-click-modal="false"
-    :close-on-press-escape="!requirePassword"
+    :close-on-press-escape="false"
     @close="handleClose"
   >
     <div class="dialog-content">
@@ -24,15 +24,19 @@
           show-password
           @keyup.enter="handleConfirm"
           ref="passwordInput"
+          :disabled="loading"
         />
       </el-form-item>
       <div class="error-message" v-if="errorMessage">
         <el-icon><CircleCloseFilled /></el-icon>
         <span>{{ errorMessage }}</span>
       </div>
+      <div class="attempt-info" v-if="failedAttempts > 0">
+        <span>已尝试 {{ failedAttempts }} 次</span>
+      </div>
     </div>
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
+      <el-button @click="handleClose" :disabled="loading">取消</el-button>
       <el-button type="primary" :loading="loading" @click="handleConfirm">
         {{ confirmText }}
       </el-button>
@@ -41,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Warning, QuestionFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
@@ -51,14 +55,12 @@ const props = defineProps<{
   title?: string
   description?: string
   confirmText?: string
-  requirePassword?: boolean
   showWarning?: boolean
-  confirmAction?: () => Promise<boolean> | boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'confirm'): void
+  (e: 'confirm', password: string): void
   (e: 'cancel'): void
 }>()
 
@@ -69,19 +71,20 @@ const password = ref('')
 const errorMessage = ref('')
 const loading = ref(false)
 const passwordInput = ref()
+const failedAttempts = ref(0)
 
-const title = props.title || '请确认操作'
-const description = props.description || '请输入密码以确认此操作'
-const confirmText = props.confirmText || '确认'
-const requirePassword = props.requirePassword !== false
-const showWarning = props.showWarning ?? true
-const passwordHint = store.securitySettings?.passwordHint
+const title = computed(() => props.title || '请确认操作')
+const description = computed(() => props.description || '请输入密码以确认此操作')
+const confirmText = computed(() => props.confirmText || '确认')
+const showWarning = computed(() => props.showWarning !== false)
+const passwordHint = computed(() => store.securitySettings?.passwordHint)
 
 watch(() => props.modelValue, (val) => {
   visible.value = val
   if (val) {
     password.value = ''
     errorMessage.value = ''
+    failedAttempts.value = 0
     nextTick(() => {
       passwordInput.value?.focus()
     })
@@ -102,38 +105,41 @@ const handleClose = () => {
 const handleConfirm = async () => {
   errorMessage.value = ''
   
-  if (requirePassword && store.hasMasterPassword) {
-    if (!password.value) {
-      errorMessage.value = '请输入密码'
-      return
-    }
-    
-    const isValid = store.verifyMasterPassword(password.value)
-    if (!isValid) {
-      errorMessage.value = '密码错误'
-      return
-    }
-  }
-  
-  if (props.confirmAction) {
-    loading.value = true
-    try {
-      const result = await props.confirmAction()
-      if (result !== false) {
-        emit('confirm')
-        visible.value = false
-      }
-    } catch (e) {
-      errorMessage.value = '操作失败，请重试'
-    } finally {
-      loading.value = false
-    }
-  } else {
-    emit('confirm')
+  if (!store.hasMasterPassword) {
+    emit('confirm', '')
     visible.value = false
+    return
   }
+
+  if (!password.value.trim()) {
+    errorMessage.value = '请输入密码'
+    return
+  }
+
+  loading.value = true
   
-  password.value = ''
+  try {
+    const isValid = store.verifyMasterPassword(password.value)
+    
+    if (isValid) {
+      failedAttempts.value = 0
+      const confirmedPassword = password.value
+      password.value = ''
+      emit('confirm', confirmedPassword)
+      visible.value = false
+    } else {
+      failedAttempts.value++
+      errorMessage.value = '密码错误，请重试'
+      password.value = ''
+      nextTick(() => {
+        passwordInput.value?.focus()
+      })
+    }
+  } catch (e) {
+    errorMessage.value = '验证失败，请重试'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -179,6 +185,13 @@ const handleConfirm = async () => {
     .el-icon {
       flex-shrink: 0;
     }
+  }
+
+  .attempt-info {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #909399;
+    text-align: right;
   }
 }
 </style>

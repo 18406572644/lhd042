@@ -342,13 +342,17 @@ const changePassword = () => {
   }
 }
 
-const removePassword = () => {
-  showRemovePasswordDialog.value = false
-  store.removeMasterPassword('')
-  encryptionEnabled.value = false
-  privacyMode.value = false
-  autoLockEnabled.value = false
-  ElMessage.success('主密码已移除')
+const removePassword = (password: string) => {
+  const success = store.removeMasterPassword(password)
+  if (success) {
+    showRemovePasswordDialog.value = false
+    encryptionEnabled.value = false
+    privacyMode.value = false
+    autoLockEnabled.value = false
+    ElMessage.success('主密码已移除')
+  } else {
+    ElMessage.error('密码错误，移除失败')
+  }
 }
 
 const toggleEncryption = (enabled: boolean) => {
@@ -494,13 +498,19 @@ const handleClearData = () => {
   if (store.hasMasterPassword) {
     showClearConfirmDialog.value = true
   } else {
-    clearAllData()
+    store.clearAllData()
+    ElMessage.success('数据已清除')
   }
 }
 
-const clearAllData = () => {
-  store.clearAllData()
-  ElMessage.success('数据已清除')
+const clearAllData = (password: string) => {
+  const success = store.clearAllData(password)
+  if (success) {
+    showClearConfirmDialog.value = false
+    ElMessage.success('数据已清除')
+  } else {
+    ElMessage.error('操作失败，请检查密码')
+  }
 }
 
 const syncSecurityState = () => {
