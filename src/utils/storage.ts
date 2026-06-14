@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings } from '@/types'
+import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, DiaryEntry, DiaryPassword } from '@/types'
 import { generateId } from '@/utils'
 
 const PLANTS_KEY = 'plant_tracker_plants'
@@ -8,6 +8,8 @@ const PHOTOS_KEY = 'plant_tracker_photos'
 const REMINDERS_KEY = 'plant_tracker_reminders'
 const KNOWLEDGE_KEY = 'plant_tracker_knowledge'
 const SETTINGS_KEY = 'plant_tracker_settings'
+const DIARY_KEY = 'plant_tracker_diary'
+const DIARY_PASSWORD_KEY = 'plant_tracker_diary_password'
 
 export const getFromStorage = <T>(key: string, defaultValue: T): T => {
   try {
@@ -33,6 +35,8 @@ export const settings = ref<AppSettings>(getFromStorage<AppSettings>(SETTINGS_KE
   theme: 'forest',
   dataDir: ''
 }))
+export const diaryEntries = ref<DiaryEntry[]>(getFromStorage<DiaryEntry[]>(DIARY_KEY, []))
+export const diaryPassword = ref<DiaryPassword | null>(getFromStorage<DiaryPassword | null>(DIARY_PASSWORD_KEY, null))
 
 export const savePlants = () => setToStorage(PLANTS_KEY, plants.value)
 export const saveCareRecords = () => setToStorage(CARE_KEY, careRecords.value)
@@ -40,6 +44,8 @@ export const savePhotos = () => setToStorage(PHOTOS_KEY, photos.value)
 export const saveReminders = () => setToStorage(REMINDERS_KEY, reminders.value)
 export const saveKnowledge = () => setToStorage(KNOWLEDGE_KEY, knowledgeArticles.value)
 export const saveSettings = () => setToStorage(SETTINGS_KEY, settings.value)
+export const saveDiary = () => setToStorage(DIARY_KEY, diaryEntries.value)
+export const saveDiaryPassword = () => setToStorage(DIARY_PASSWORD_KEY, diaryPassword.value)
 
 export const initDefaultData = () => {
   if (plants.value.length === 0) {
@@ -279,5 +285,62 @@ export const initDefaultData = () => {
     ]
     reminders.value = defaultReminders
     saveReminders()
+
+    const defaultDiary: DiaryEntry[] = [
+      {
+        id: generateId(),
+        date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        content: '今天阳光特别好，把小绿和圆圆都搬到阳台晒太阳了。小绿新长了两片嫩叶，翠绿色的特别好看。圆圆看起来也很精神，叶片越来越饱满了。薄荷剪了一些叶子泡了茶，香气真的很治愈～',
+        mood: 'happy',
+        plantIds: [p1.id, p2.id, p3.id],
+        photos: [],
+        weather: 'sunny',
+        temperature: 26,
+        isPrivate: false,
+        createdAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: generateId(),
+        date: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        content: '今天下了一整天的雨，空气湿度很高。发现圆圆叶片上有一些小黑点，有点担心是不是生虫了，仔细检查了一下好像是灰尘，虚惊一场。薄荷有点蔫了，赶紧浇了水，希望明天能恢复精神。',
+        mood: 'worried',
+        plantIds: [p2.id, p3.id],
+        photos: [],
+        weather: 'rainy',
+        temperature: 20,
+        isPrivate: false,
+        createdAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: generateId(),
+        date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        content: '惊喜！小绿居然抽出了一条新的藤蔓，上面有好几个嫩芽！没想到它生长得这么快。今天给所有植物都松了松土，顺便把黄叶子都修剪掉了。看着这些小家伙一天天长大，真的很有成就感。',
+        mood: 'surprised',
+        plantIds: [p1.id, p2.id, p3.id],
+        photos: [],
+        weather: 'cloudy',
+        temperature: 23,
+        isPrivate: false,
+        createdAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: generateId(),
+        date: new Date().toISOString().split('T')[0],
+        content: '今天的天气特别舒服，微风不燥。给圆圆和薄荷都浇了水，土壤湿度刚好。小绿的新藤蔓又长了一点，准备过几天给它搭个爬架。养植物真的是一件很治愈的事情，每天看着它们就觉得很平静。',
+        mood: 'calm',
+        plantIds: [p1.id],
+        photos: [],
+        weather: 'sunny',
+        temperature: 24,
+        isPrivate: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ]
+    diaryEntries.value = defaultDiary
+    saveDiary()
   }
 }

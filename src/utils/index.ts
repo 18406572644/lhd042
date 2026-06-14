@@ -225,3 +225,87 @@ export const compressImage = (file: File, maxWidth: number = 800, quality: numbe
     reader.readAsDataURL(file)
   })
 }
+
+export const moodEmoji = (mood: string): string => {
+  const map: Record<string, string> = {
+    happy: '😊',
+    calm: '😌',
+    worried: '😟',
+    surprised: '😲',
+    sad: '😢',
+    excited: '🤩',
+    grateful: '🙏',
+    tired: '😴'
+  }
+  return map[mood] || '📝'
+}
+
+export const moodLabel = (mood: string): string => {
+  const map: Record<string, string> = {
+    happy: '开心',
+    calm: '平静',
+    worried: '担心',
+    surprised: '惊喜',
+    sad: '难过',
+    excited: '兴奋',
+    grateful: '感恩',
+    tired: '疲惫'
+  }
+  return map[mood] || mood
+}
+
+export const moodColor = (mood: string): string => {
+  const map: Record<string, string> = {
+    happy: '#F4D03F',
+    calm: '#7CB342',
+    worried: '#F39C12',
+    surprised: '#E74C3C',
+    sad: '#5B9BD5',
+    excited: '#E91E63',
+    grateful: '#9C27B0',
+    tired: '#95A5A6'
+  }
+  return map[mood] || '#8B7355'
+}
+
+export const weatherEmoji = (weather: string): string => {
+  const map: Record<string, string> = {
+    sunny: '☀️',
+    cloudy: '☁️',
+    rainy: '🌧️',
+    snowy: '❄️',
+    windy: '💨',
+    foggy: '🌫️',
+    hot: '🔥',
+    cold: '🥶'
+  }
+  return map[weather] || '🌤️'
+}
+
+export const weatherLabel = (weather: string): string => {
+  const map: Record<string, string> = {
+    sunny: '晴天',
+    cloudy: '多云',
+    rainy: '雨天',
+    snowy: '雪天',
+    windy: '大风',
+    foggy: '雾天',
+    hot: '酷热',
+    cold: '寒冷'
+  }
+  return map[weather] || weather
+}
+
+export const getWeekDay = (dateStr: string): string => {
+  const days = ['日', '一', '二', '三', '四', '五', '六']
+  const d = new Date(dateStr)
+  return '周' + days[d.getDay()]
+}
+
+export const getMonthDays = (year: number, month: number): number => {
+  return new Date(year, month + 1, 0).getDate()
+}
+
+export const getFirstDayOfWeek = (year: number, month: number): number => {
+  return new Date(year, month, 1).getDay()
+}

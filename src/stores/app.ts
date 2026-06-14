@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, CompletionFeedback } from '@/types'
+import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, CompletionFeedback, DiaryEntry, DiaryPassword, DiarySearchParams, DiaryMood } from '@/types'
 import { generateId } from '@/utils'
 import {
   plants as plantsRef,
@@ -8,12 +8,16 @@ import {
   reminders as remindersRef,
   knowledgeArticles as knowledgeRef,
   settings as settingsRef,
+  diaryEntries as diaryRef,
+  diaryPassword as diaryPasswordRef,
   savePlants,
   saveCareRecords,
   savePhotos,
   saveReminders,
   saveKnowledge,
   saveSettings,
+  saveDiary,
+  saveDiaryPassword,
   initDefaultData,
   getFromStorage
 } from '@/utils/storage'
@@ -24,6 +28,8 @@ const PHOTOS_KEY = 'plant_tracker_photos'
 const REMINDERS_KEY = 'plant_tracker_reminders'
 const KNOWLEDGE_KEY = 'plant_tracker_knowledge'
 const SETTINGS_KEY = 'plant_tracker_settings'
+const DIARY_KEY = 'plant_tracker_diary'
+const DIARY_PASSWORD_KEY = 'plant_tracker_diary_password'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -38,6 +44,9 @@ export const useAppStore = defineStore('app', {
       theme: 'forest',
       dataDir: ''
     }),
+    diaryEntries: getFromStorage<DiaryEntry[]>(DIARY_KEY, []),
+    diaryPassword: getFromStorage<DiaryPassword | null>(DIARY_PASSWORD_KEY, null),
+    diaryUnlocked: false,
     isReady: false
   }),
 
@@ -76,7 +85,84 @@ export const useAppStore = defineStore('app', {
     healthyPlants: (state) => state.plants.filter(p => p.status === 'healthy').length,
     needsCarePlants: (state) => state.plants.filter(p => p.status === 'needsCare').length,
     totalRecords: (state) => state.careRecords.length,
-    totalPhotos: (state) => state.photos.length
+    totalPhotos: (state) => state.photos.length,
+
+    publicDiaryEntries: (state) => {
+      return state.diaryEntries.filter(d => !d.isPrivate)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    },
+
+    allDiaryEntries: (state) => {
+      return [...state.diaryEntries]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    },
+
+    getDiaryById: (state) => (id: string) => {
+      return state.diaryEntries.find(d => d.id === id)
+    },
+
+    getDiaryByDate: (state) => (date: string) => {
+      return state.diaryEntries.filter(d => d.date === date)
+    },
+
+    diaryDatesWithEntries: (state) => {
+      return [...new Set(state.diaryEntries.map(d => d.date))]
+    },
+
+    hasDiaryPassword: (state) => {
+      return state.diaryPassword !== null
+    },
+
+    canViewPrivateDiary: (state) => {
+      return !state.diaryPassword || state.diaryUnlocked
+    },
+
+    getDiaryMoodStats: (state) => (month?: number, year?: number) => {
+      let entries = state.diaryEntries
+      if (month !== undefined && year !== undefined) {
+        entries = entries.filter(d => {
+          const date = new Date(d.date)
+          return date.getMonth() === month && date.getFullYear() === year
+        })
+      }
+      const stats: Record<string, number> = {}
+      entries.forEach(d => {
+        stats[d.mood] = (stats[d.mood] || 0) + 1
+      })
+      return stats
+    },
+
+    getDiaryMonthlyStats: (state) => (year: number) => {
+      const months: number[] = []
+      for (let i = 0; i < 12; i++) {
+        const count = state.diaryEntries.filter(d => {
+          const date = new Date(d.date)
+          return date.getFullYear() === year && date.getMonth() === i
+        }).length
+        months.push(count)
+      }
+      return months
+    },
+
+    getDiaryStreak: (state) => {
+      const dates = [...new Set(state.diaryEntries.map(d => d.date))].sort()
+      if (dates.length === 0) return 0
+      
+      let streak = 1
+      let maxStreak = 1
+      for (let i = 1; i < dates.length; i++) {
+        const prev = new Date(dates[i - 1])
+        const curr = new Date(dates[i])
+        const diffDays = Math.floor((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24))
+        if (diffDays === 1) {
+          streak++
+          maxStreak = Math.max(maxStreak, streak)
+        } else if (diffDays > 1) {
+          streak = 1
+        }
+      }
+      return maxStreak
+    }
   },
 
   actions: {
@@ -88,12 +174,16 @@ export const useAppStore = defineStore('app', {
       const r = getFromStorage<Reminder[]>(REMINDERS_KEY, [])
       const k = getFromStorage<KnowledgeArticle[]>(KNOWLEDGE_KEY, [])
       const s = getFromStorage<AppSettings>(SETTINGS_KEY, { autoStart: false, reminderEnabled: true, theme: 'forest', dataDir: '' })
+      const d = getFromStorage<DiaryEntry[]>(DIARY_KEY, [])
+      const dp = getFromStorage<DiaryPassword | null>(DIARY_PASSWORD_KEY, null)
       this.plants = p
       this.careRecords = c
       this.photos = ph
       this.reminders = r
       this.knowledgeArticles = k
       this.settings = s
+      this.diaryEntries = d
+      this.diaryPassword = dp
       this.isReady = true
     },
 
@@ -272,6 +362,98 @@ export const useAppStore = defineStore('app', {
     updateSettings(newSettings: Partial<AppSettings>) {
       this.settings = { ...this.settings, ...newSettings }
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings))
+    },
+
+    addDiaryEntry(entry: Omit<DiaryEntry, 'id' | 'createdAt' | 'updatedAt'>) {
+      const now = new Date().toISOString()
+      const newEntry: DiaryEntry = { ...entry, id: generateId(), createdAt: now, updatedAt: now }
+      this.diaryEntries.push(newEntry)
+      localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+      return newEntry
+    },
+
+    updateDiaryEntry(id: string, data: Partial<DiaryEntry>) {
+      const index = this.diaryEntries.findIndex(d => d.id === id)
+      if (index !== -1) {
+        this.diaryEntries[index] = { ...this.diaryEntries[index], ...data, updatedAt: new Date().toISOString() }
+        localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+      }
+    },
+
+    deleteDiaryEntry(id: string) {
+      this.diaryEntries = this.diaryEntries.filter(d => d.id !== id)
+      localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+    },
+
+    searchDiaryEntries(params: DiarySearchParams): DiaryEntry[] {
+      let list = [...this.diaryEntries]
+      
+      if (!params.includePrivate && !this.canViewPrivateDiary) {
+        list = list.filter(d => !d.isPrivate)
+      }
+      
+      if (params.dateFrom) {
+        list = list.filter(d => d.date >= params.dateFrom!)
+      }
+      if (params.dateTo) {
+        list = list.filter(d => d.date <= params.dateTo!)
+      }
+      if (params.mood) {
+        list = list.filter(d => d.mood === params.mood)
+      }
+      if (params.plantId) {
+        list = list.filter(d => d.plantIds.includes(params.plantId!))
+      }
+      if (params.keyword) {
+        const keyword = params.keyword.toLowerCase()
+        list = list.filter(d => 
+          d.content.toLowerCase().includes(keyword)
+        )
+      }
+      
+      return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    },
+
+    setDiaryPassword(password: string, hint?: string) {
+      const passwordHash = this.hashPassword(password)
+      const passwordData: DiaryPassword = {
+        passwordHash,
+        passwordHint: hint,
+        createdAt: new Date().toISOString()
+      }
+      this.diaryPassword = passwordData
+      this.diaryUnlocked = true
+      localStorage.setItem(DIARY_PASSWORD_KEY, JSON.stringify(passwordData))
+    },
+
+    verifyDiaryPassword(password: string): boolean {
+      if (!this.diaryPassword) return true
+      const hash = this.hashPassword(password)
+      const valid = hash === this.diaryPassword.passwordHash
+      if (valid) {
+        this.diaryUnlocked = true
+      }
+      return valid
+    },
+
+    lockDiary() {
+      this.diaryUnlocked = false
+    },
+
+    removeDiaryPassword() {
+      this.diaryPassword = null
+      this.diaryUnlocked = true
+      localStorage.removeItem(DIARY_PASSWORD_KEY)
+    },
+
+    hashPassword(password: string): string {
+      let hash = 0
+      for (let i = 0; i < password.length; i++) {
+        const char = password.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash
+      }
+      return hash.toString(36)
     }
   }
 })

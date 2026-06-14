@@ -38,6 +38,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '生长相册', icon: 'Picture' }
       },
       {
+        path: 'diary',
+        name: 'Diary',
+        component: () => import('@/views/Diary.vue'),
+        meta: { title: '生长日记', icon: 'EditPen' }
+      },
+      {
+        path: 'diary/:id',
+        name: 'DiaryDetail',
+        component: () => import('@/views/DiaryDetail.vue'),
+        meta: { title: '日记详情', hidden: true }
+      },
+      {
         path: 'reminders',
         name: 'Reminders',
         component: () => import('@/views/Reminders.vue'),

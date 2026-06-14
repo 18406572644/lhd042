@@ -39,6 +39,10 @@
           <el-icon><Picture /></el-icon>
           <template #title>生长相册</template>
         </el-menu-item>
+        <el-menu-item index="/diary">
+          <el-icon><EditPen /></el-icon>
+          <template #title>生长日记</template>
+        </el-menu-item>
         <el-menu-item index="/reminders">
           <el-icon><AlarmClock /></el-icon>
           <template #title>提醒事项</template>
@@ -119,6 +123,7 @@ const isCollapsed = ref(false)
 
 const currentRoute = computed(() => {
   if (route.path.startsWith('/plant/')) return '/plants'
+  if (route.path.startsWith('/diary/')) return '/diary'
   return route.path
 })
 

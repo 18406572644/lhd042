@@ -47,6 +47,42 @@
     </div>
 
     <el-row :gutter="20">
+      <el-col :span="8">
+        <div class="overview-card diary-stat-card">
+          <div class="overview-icon" style="background: linear-gradient(135deg, #F4D03F, #F39C12);">
+            <span>📖</span>
+          </div>
+          <div class="overview-info">
+            <div class="overview-value">{{ totalDiary }}</div>
+            <div class="overview-label">日记总数</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="overview-card diary-stat-card">
+          <div class="overview-icon" style="background: linear-gradient(135deg, #7CB342, #6B8E5A);">
+            <span>🔥</span>
+          </div>
+          <div class="overview-info">
+            <div class="overview-value">{{ diaryStreak }}</div>
+            <div class="overview-label">最长连续打卡</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="overview-card diary-stat-card">
+          <div class="overview-icon" style="background: linear-gradient(135deg, #E91E63, #E8B4B8);">
+            <span>😊</span>
+          </div>
+          <div class="overview-info">
+            <div class="overview-value">{{ topMoodLabel }}</div>
+            <div class="overview-label">最常心情</div>
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="20">
       <el-col :span="12">
         <div class="section-card">
           <h3 class="chart-title">养护记录分布</h3>
@@ -90,12 +126,34 @@
         <v-chart :option="heightOption" autoresize style="height: 300px" />
       </div>
     </div>
+
+    <div v-if="totalDiary > 0" style="margin-top: 20px;">
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <div class="section-card">
+            <h3 class="chart-title">日记心情分布</h3>
+            <div class="chart-container">
+              <v-chart :option="diaryMoodOption" autoresize style="height: 300px" />
+            </div>
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <div class="section-card">
+            <h3 class="chart-title">月度日记统计</h3>
+            <div class="chart-container">
+              <v-chart :option="diaryMonthlyOption" autoresize style="height: 300px" />
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { moodLabel, moodColor, moodEmoji } from '@/utils'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart } from 'echarts/charts'
@@ -110,6 +168,17 @@ const totalPlants = computed(() => store.plants.length)
 const waterRecords = computed(() => store.careRecords.filter(r => r.type === 'water').length)
 const fertilizeRecords = computed(() => store.careRecords.filter(r => r.type === 'fertilize').length)
 const totalPhotos = computed(() => store.photos.length)
+
+const totalDiary = computed(() => store.diaryEntries.length)
+const diaryStreak = computed(() => store.getDiaryStreak)
+
+const topMoodLabel = computed(() => {
+  const stats = store.getDiaryMoodStats()
+  const entries = Object.entries(stats)
+  if (entries.length === 0) return '-'
+  entries.sort((a, b) => b[1] - a[1])
+  return moodLabel(entries[0][0])
+})
 
 const careTypeOption = computed(() => {
   const types = [
@@ -233,6 +302,60 @@ const heightOption = computed(() => {
     color: ['#6B8E5A', '#5B9BD5', '#E8B4B8', '#F4D03F', '#8B7355', '#A89070', '#7CB342', '#95A5A6']
   }
 })
+
+const diaryMoodOption = computed(() => {
+  const stats = store.getDiaryMoodStats()
+  const data = Object.entries(stats).map(([key, value]) => ({
+    name: moodLabel(key) + ' ' + moodEmoji(key),
+    value: value as number,
+    itemStyle: { color: moodColor(key) }
+  }))
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}篇 ({d}%)' },
+    legend: { bottom: '0', textStyle: { color: '#8B7355' }, type: 'scroll' },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      itemStyle: { borderRadius: 8, borderColor: '#FAF8F3', borderWidth: 3 },
+      label: { color: '#6B5344', fontSize: 12 },
+      data,
+    }]
+  }
+})
+
+const diaryMonthlyOption = computed(() => {
+  const year = new Date().getFullYear()
+  const monthlyData = store.getDiaryMonthlyStats(year)
+  const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: months,
+      axisLabel: { color: '#8B7355' },
+      axisLine: { lineStyle: { color: '#EDE7D9' } }
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { color: '#8B7355' },
+      splitLine: { lineStyle: { color: '#EDE7D9' } }
+    },
+    series: [{
+      type: 'bar',
+      data: monthlyData,
+      barWidth: '50%',
+      itemStyle: {
+        borderRadius: [8, 8, 0, 0],
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: '#F4D03F' }, { offset: 1, color: '#F39C12' }]
+        }
+      }
+    }]
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -278,6 +401,10 @@ const heightOption = computed(() => {
 
   .chart-title {
     font-size: 16px; font-weight: 600; color: $brown-dark; margin-bottom: 16px;
+  }
+
+  .diary-stat-card {
+    margin-bottom: 0;
   }
 }
 </style>

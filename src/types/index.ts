@@ -73,3 +73,36 @@ export interface AppSettings {
   theme: 'forest' | 'light'
   dataDir: string
 }
+
+export type DiaryMood = 'happy' | 'calm' | 'worried' | 'surprised' | 'sad' | 'excited' | 'grateful' | 'tired'
+
+export type WeatherCondition = 'sunny' | 'cloudy' | 'rainy' | 'snowy' | 'windy' | 'foggy' | 'hot' | 'cold'
+
+export interface DiaryEntry {
+  id: string
+  date: string
+  content: string
+  mood: DiaryMood
+  plantIds: string[]
+  photos: string[]
+  weather: WeatherCondition
+  temperature?: number
+  isPrivate: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DiaryPassword {
+  passwordHash: string
+  passwordHint?: string
+  createdAt: string
+}
+
+export interface DiarySearchParams {
+  dateFrom?: string
+  dateTo?: string
+  mood?: DiaryMood
+  plantId?: string
+  keyword?: string
+  includePrivate?: boolean
+}
