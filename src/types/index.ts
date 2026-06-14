@@ -38,16 +38,22 @@ export interface PhotoRecord {
   createdAt: string
 }
 
+export type CompletionFeedback = 'completed' | 'healthy' | 'pest' | 'sick' | 'other'
+
 export interface Reminder {
   id: string
   plantId: string
   type: 'water' | 'fertilize' | 'prune' | 'repot' | 'custom'
   title: string
   scheduledDate: string
+  scheduledTime?: string
   repeatInterval?: number
   repeatUnit?: 'day' | 'week' | 'month'
   completed: boolean
   completedAt?: string
+  completionFeedback?: CompletionFeedback
+  completionNote?: string
+  postponedCount?: number
   createdAt: string
 }
 

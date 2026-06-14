@@ -90,7 +90,10 @@
               <div class="reminder-dot" :style="{ background: getCareTypeColor(rem.type) }"></div>
               <div class="reminder-content">
                 <div class="reminder-title">{{ rem.title }}</div>
-                <div class="reminder-time">{{ formatDate(rem.scheduledDate, 'MM-DD HH:mm') }}</div>
+                <div class="reminder-time">
+                  {{ formatDate(rem.scheduledDate, 'MM-DD') }}
+                  <span v-if="rem.scheduledTime">{{ rem.scheduledTime }}</span>
+                </div>
               </div>
               <el-button size="small" type="primary" round @click="completeReminder(rem.id)">完成</el-button>
             </div>

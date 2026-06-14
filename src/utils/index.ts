@@ -87,9 +87,83 @@ export const getCareTypeColor = (type: string): string => {
     fertilize: '#8FA978',
     prune: '#E8B4B8',
     repot: '#8B7355',
-    other: '#A89070'
+    custom: '#A89070'
   }
   return map[type] || '#8B7355'
+}
+
+export const completionFeedbackLabel = (feedback: string): string => {
+  const map: Record<string, string> = {
+    completed: '✅ 已完成',
+    healthy: '🌿 植物状态良好',
+    pest: '🐛 发现病虫害',
+    sick: '🥀 植物状态不佳',
+    other: '📝 其他'
+  }
+  return map[feedback] || feedback
+}
+
+export const completionFeedbackColor = (feedback: string): string => {
+  const map: Record<string, string> = {
+    completed: '#6B8E5A',
+    healthy: '#7CB342',
+    pest: '#E74C3C',
+    sick: '#F39C12',
+    other: '#95A5A6'
+  }
+  return map[feedback] || '#95A5A6'
+}
+
+export const addHours = (date: string | Date, hours: number): string => {
+  const d = typeof date === 'string' ? new Date(date) : date
+  d.setHours(d.getHours() + hours)
+  return d.toISOString()
+}
+
+export const combineDateAndTime = (dateStr: string, timeStr: string): string => {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const [hours, minutes] = timeStr.split(':').map(Number)
+  const d = new Date(year, month - 1, day, hours || 0, minutes || 0, 0, 0)
+  return d.toISOString()
+}
+
+export const getOverdueInfo = (scheduledDate: string, scheduledTime?: string) => {
+  const dateStr = scheduledTime ? combineDateAndTime(scheduledDate, scheduledTime) : scheduledDate
+  const scheduled = new Date(dateStr)
+  const now = new Date()
+  const isOverdue = scheduled < now
+  let overdueDays = 0
+  let overdueHours = 0
+  let overdueMinutes = 0
+  if (isOverdue) {
+    const diffMs = now.getTime() - scheduled.getTime()
+    overdueDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    overdueHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+    overdueMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+  }
+  return { isOverdue, overdueDays, overdueHours, overdueMinutes }
+}
+
+export const formatOverdueText = (days: number, hours: number, minutes: number): string => {
+  if (days > 0) return `逾期 ${days} 天`
+  if (hours > 0) return `逾期 ${hours} 小时`
+  if (minutes > 0) return `逾期 ${minutes} 分钟`
+  return '即将到期'
+}
+
+export const getDefaultTime = (): string => {
+  return '08:00'
+}
+
+export const isToday = (dateStr: string): boolean => {
+  const today = new Date().toISOString().split('T')[0]
+  return dateStr === today
+}
+
+export const isTomorrow = (dateStr: string): boolean => {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return dateStr === tomorrow.toISOString().split('T')[0]
 }
 
 export const getStatusColor = (status: string): string => {

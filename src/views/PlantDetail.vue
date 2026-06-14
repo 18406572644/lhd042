@@ -103,7 +103,10 @@
                 {{ careTypeLabel(rem.type) }}
               </span>
               <span class="reminder-title">{{ rem.title }}</span>
-              <span class="reminder-schedule">{{ formatDate(rem.scheduledDate, 'YYYY-MM-DD') }}</span>
+              <span class="reminder-schedule">
+                {{ formatDate(rem.scheduledDate, 'YYYY-MM-DD') }}
+                <span v-if="rem.scheduledTime">{{ rem.scheduledTime }}</span>
+              </span>
               <span class="reminder-repeat" v-if="rem.repeatInterval">
                 每{{ rem.repeatInterval }}{{ rem.repeatUnit === 'day' ? '天' : rem.repeatUnit === 'week' ? '周' : '月' }}
               </span>
@@ -182,7 +185,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showReminderDialog" title="添加提醒" width="480px" destroy-on-close>
+    <el-dialog v-model="showReminderDialog" title="添加提醒" width="520px" destroy-on-close>
       <el-form :model="reminderForm" label-position="top">
         <el-form-item label="提醒类型">
           <el-radio-group v-model="reminderForm.type">
@@ -196,9 +199,24 @@
         <el-form-item label="提醒标题">
           <el-input v-model="reminderForm.title" placeholder="如：给小绿浇水" />
         </el-form-item>
-        <el-form-item label="提醒日期">
-          <el-date-picker v-model="reminderForm.scheduledDate" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DD" />
-        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="提醒日期" required>
+              <el-date-picker v-model="reminderForm.scheduledDate" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DD" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="提醒时间">
+              <el-time-picker
+                v-model="reminderForm.scheduledTime"
+                placeholder="选择时间"
+                style="width: 100%"
+                value-format="HH:mm"
+                format="HH:mm"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="重复间隔">
@@ -206,7 +224,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="重复单位">
+            <el-form-item label="重复单位" v-if="reminderForm.repeatInterval > 0">
               <el-select v-model="reminderForm.repeatUnit" style="width: 100%">
                 <el-option label="天" value="day" />
                 <el-option label="周" value="week" />
@@ -230,7 +248,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
-import { formatDate, statusLabel, getStatusColor, sunlightLabel, difficultyLabel, careTypeLabel, getCareTypeColor, getPlantEmoji, compressImage } from '@/utils'
+import { formatDate, statusLabel, getStatusColor, sunlightLabel, difficultyLabel, careTypeLabel, getCareTypeColor, getPlantEmoji, compressImage, getDefaultTime } from '@/utils'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -277,6 +295,7 @@ const reminderForm = reactive({
   type: 'water' as 'water' | 'fertilize' | 'prune' | 'repot' | 'custom',
   title: '',
   scheduledDate: new Date().toISOString().split('T')[0],
+  scheduledTime: getDefaultTime(),
   repeatInterval: 0,
   repeatUnit: 'day' as 'day' | 'week' | 'month'
 })
@@ -342,11 +361,20 @@ const addReminder = () => {
     type: reminderForm.type,
     title: reminderForm.title || careTypeLabel(reminderForm.type),
     scheduledDate: reminderForm.scheduledDate,
+    scheduledTime: reminderForm.scheduledTime || undefined,
     repeatInterval: reminderForm.repeatInterval || undefined,
     repeatUnit: reminderForm.repeatInterval ? reminderForm.repeatUnit : undefined
   })
   ElMessage.success('提醒已添加')
   showReminderDialog.value = false
+  Object.assign(reminderForm, {
+    type: 'water',
+    title: '',
+    scheduledDate: new Date().toISOString().split('T')[0],
+    scheduledTime: getDefaultTime(),
+    repeatInterval: 0,
+    repeatUnit: 'day'
+  })
 }
 
 const completeReminder = (id: string) => {

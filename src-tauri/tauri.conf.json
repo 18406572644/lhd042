@@ -35,9 +35,6 @@
       "notification": {
         "all": true
       },
-      "autostart": {
-        "all": true
-      },
       "path": {
         "all": true
       },
@@ -103,9 +100,7 @@
     ],
     "systemTray": {
       "iconPath": "icons/32x32.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false,
-      "tooltip": "绿意盎然"
+      "iconAsTemplate": true
     }
   }
 }
