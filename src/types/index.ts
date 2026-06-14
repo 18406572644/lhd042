@@ -263,3 +263,101 @@ export interface CareStats {
   missedReminders: number
   averageResponseTime: number
 }
+
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+
+export interface SeasonalCareData {
+  season: Season
+  seasonLabel: string
+  waterCount: number
+  fertilizeCount: number
+  pruneCount: number
+  repotCount: number
+  averageWaterInterval: number
+  averageFertilizeInterval: number
+  plantHealthCount: {
+    healthy: number
+    needsCare: number
+    sick: number
+    dormant: number
+  }
+  suggestions: string[]
+}
+
+export interface HealthDimension {
+  name: string
+  label: string
+  value: number
+  maxValue: number
+  description: string
+}
+
+export interface PlantHealthAnalysis {
+  plantId: string
+  plantName: string
+  overallScore: number
+  dimensions: HealthDimension[]
+  lastUpdated: string
+}
+
+export interface CareFrequencyPoint {
+  date: string
+  waterCount: number
+  fertilizeCount: number
+  rollingWaterInterval: number
+  rollingFertilizeInterval: number
+}
+
+export interface PlantCareFrequency {
+  plantId: string
+  plantName: string
+  data: CareFrequencyPoint[]
+}
+
+export interface GrowthDataPoint {
+  date: string
+  height: number | null
+  leafCount: number | null
+  growthRate: number | null
+}
+
+export interface PlantGrowthData {
+  plantId: string
+  plantName: string
+  data: GrowthDataPoint[]
+  totalGrowth: number
+  averageGrowthRate: number
+}
+
+export interface ReportMetric {
+  key: string
+  label: string
+  enabled: boolean
+  description: string
+}
+
+export interface CustomReportConfig {
+  title: string
+  plantIds: string[]
+  metrics: ReportMetric[]
+  dateRange: {
+    start: string
+    end: string
+  }
+  includeCharts: boolean
+  includeRawData: boolean
+}
+
+export interface ReportSection {
+  title: string
+  type: 'text' | 'chart' | 'table'
+  content: any
+}
+
+export interface CustomReport {
+  id: string
+  title: string
+  createdAt: string
+  sections: ReportSection[]
+  config: CustomReportConfig
+}

@@ -52,6 +52,15 @@
           <el-icon><Reading /></el-icon>
           <template #title>养护知识</template>
         </el-menu-item>
+        <el-menu-item index="/suggestions">
+          <el-icon><MagicStick /></el-icon>
+          <template #title>智能建议</template>
+          <el-badge v-if="smartCount > 0" :value="smartCount" :max="9" class="nav-badge" />
+        </el-menu-item>
+        <el-menu-item index="/achievements">
+          <el-icon><Trophy /></el-icon>
+          <template #title>成就中心</template>
+        </el-menu-item>
         <el-menu-item index="/statistics">
           <el-icon><DataAnalysis /></el-icon>
           <template #title>数据统计</template>
@@ -131,7 +140,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { formatDate } from '@/utils'
 import LockScreen from '@/components/LockScreen.vue'
-import { Lock, Hide, Document } from '@element-plus/icons-vue'
+import { Lock, Hide, Document, MagicStick, Trophy } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -154,6 +163,10 @@ const currentDate = computed(() => {
 })
 
 const pendingCount = computed(() => appStore.todayRemindersCount)
+
+const smartCount = computed(() => {
+  return (appStore.activeSuggestionsCount || 0) + (appStore.activeWarningsCount || 0)
+})
 
 const handleSelect = (index: string) => {
   router.push(index)
