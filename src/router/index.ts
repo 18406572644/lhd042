@@ -62,6 +62,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '养护知识', icon: 'Reading' }
       },
       {
+        path: 'suggestions',
+        name: 'CareSuggestions',
+        component: () => import('@/views/CareSuggestions.vue'),
+        meta: { title: '智能建议', icon: 'MagicStick' }
+      },
+      {
+        path: 'achievements',
+        name: 'Achievements',
+        component: () => import('@/views/Achievements.vue'),
+        meta: { title: '成就中心', icon: 'Trophy' }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/Statistics.vue'),

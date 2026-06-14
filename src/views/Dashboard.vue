@@ -47,6 +47,125 @@
       </div>
     </div>
 
+    <div class="smart-section" v-if="(store.activeSuggestionsCount > 0 || store.activeWarningsCount > 0) && store.settings.smartSuggestionsEnabled">
+      <div class="section-header">
+        <h3>💡 智能提醒</h3>
+        <el-button text type="primary" @click="$router.push('/suggestions')">查看全部</el-button>
+      </div>
+      <div class="smart-cards">
+        <div v-if="store.activeSuggestions.length > 0" class="smart-card suggestions-card">
+          <div class="smart-card-header">
+            <el-icon><MagicStick /></el-icon>
+            <span>养护建议</span>
+            <el-tag size="small" type="primary" effect="dark" round>{{ store.activeSuggestionsCount }}</el-tag>
+          </div>
+          <div class="smart-card-content">
+            <div
+              v-for="suggestion in store.activeSuggestions.slice(0, 2)"
+              :key="suggestion.id"
+              class="smart-item"
+            >
+              <div class="smart-item-icon" :style="{ background: getPriorityBg(suggestion.priority) }">
+                {{ getSuggestionTypeIcon(suggestion.type) }}
+              </div>
+              <div class="smart-item-content">
+                <div class="smart-item-title">{{ suggestion.title }}</div>
+                <div class="smart-item-desc">{{ suggestion.content }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="store.activeWarnings.length > 0" class="smart-card warnings-card">
+          <div class="smart-card-header">
+            <el-icon><Warning /></el-icon>
+            <span>智能预警</span>
+            <el-tag size="small" type="danger" effect="dark" round>{{ store.activeWarningsCount }}</el-tag>
+          </div>
+          <div class="smart-card-content">
+            <div
+              v-for="warning in store.activeWarnings.slice(0, 2)"
+              :key="warning.id"
+              class="smart-item"
+            >
+              <div class="smart-item-icon" :style="{ background: getRiskBg(warning.riskLevel) }">
+                {{ getWarningTypeIcon(warning.type) }}
+              </div>
+              <div class="smart-item-content">
+                <div class="smart-item-title">{{ warning.title }}</div>
+                <div class="smart-item-desc">{{ warning.plantName }} · {{ warning.description }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="achievement-preview">
+      <div class="section-header">
+        <h3>🏆 我的成就</h3>
+        <el-button text type="primary" @click="$router.push('/achievements')">查看全部</el-button>
+      </div>
+      <div class="achievement-stats">
+        <div class="achievement-stat">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #F39C12, #E67E22);">
+            <el-icon><Trophy /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ store.unlockedAchievementsCount }} / {{ store.totalAchievementsCount }}</div>
+            <div class="stat-label">已解锁成就</div>
+          </div>
+        </div>
+        <div v-if="store.careScore" class="achievement-stat">
+          <div class="stat-icon" :style="{ background: getLevelGradient(store.careScore.level) }">
+            {{ getLevelIcon(store.careScore.level) }}
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ store.careScore.totalScore }} 分</div>
+            <div class="stat-label" :style="{ color: getLevelColor(store.careScore.level) }">
+              {{ getLevelName(store.careScore.level) }}
+            </div>
+          </div>
+        </div>
+        <div v-if="store.careStats" class="achievement-stat">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #6B8E5A, #8FA978);">
+            🔥
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ store.careStats.currentStreak }} 天</div>
+            <div class="stat-label">连续养护</div>
+          </div>
+        </div>
+        <div v-if="store.careStats" class="achievement-stat">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #9B59B6, #BB8FCE);">
+            📝
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ store.careStats.totalRecords }} 次</div>
+            <div class="stat-label">养护记录</div>
+          </div>
+        </div>
+      </div>
+      <div class="achievement-preview-list">
+        <div
+          v-for="achievement in latestAchievements"
+          :key="achievement.id"
+          class="achievement-preview-item"
+          :class="{ unlocked: achievement.unlocked }"
+        >
+          <span class="achievement-icon">{{ achievement.icon }}</span>
+          <div class="achievement-info">
+            <div class="achievement-name">{{ achievement.name }}</div>
+            <el-progress
+              :percentage="Math.round(achievement.progress / achievement.target * 100)"
+              :color="achievement.unlocked ? getRarityColor(achievement.rarity) : '#95A5A6'"
+              :stroke-width="4"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <el-row :gutter="20">
       <el-col :span="14">
         <div class="section-card">
@@ -133,6 +252,16 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { formatDate, statusLabel, getStatusColor, careTypeLabel, getCareTypeColor, getPlantEmoji } from '@/utils'
+import { Trophy, MagicStick, Warning } from '@element-plus/icons-vue'
+import {
+  getPriorityColor,
+  getPriorityName,
+  getSuggestionTypeIcon,
+  getWarningTypeIcon,
+  getRarityColor,
+  getRarityName,
+  getLevelName
+} from '@/utils/careAI'
 
 const router = useRouter()
 const store = useAppStore()
@@ -159,6 +288,16 @@ const recentRecords = computed(() => {
     .slice(0, 5)
 })
 
+const latestAchievements = computed(() => {
+  return [...store.achievements]
+    .sort((a, b) => {
+      if (a.unlocked && !b.unlocked) return -1
+      if (!a.unlocked && b.unlocked) return 1
+      return b.progress / b.target - a.progress / a.target
+    })
+    .slice(0, 3)
+})
+
 const getPlantName = (plantId: string) => {
   const plant = store.plants.find(p => p.id === plantId)
   return plant?.name || '未知植物'
@@ -170,6 +309,54 @@ const goToPlant = (id: string) => {
 
 const completeReminder = (id: string) => {
   store.completeReminder(id)
+}
+
+const getPriorityBg = (priority: string): string => {
+  const color = getPriorityColor(priority)
+  return color + '22'
+}
+
+const getRiskBg = (riskLevel: string): string => {
+  const map: Record<string, string> = {
+    low: '#95A5A622',
+    medium: '#3498DB22',
+    high: '#F39C1222',
+    critical: '#E74C3C22'
+  }
+  return map[riskLevel] || '#95A5A622'
+}
+
+const getLevelColor = (level: string): string => {
+  const map: Record<string, string> = {
+    beginner: '#95A5A6',
+    apprentice: '#3498DB',
+    gardener: '#27AE60',
+    expert: '#9B59B6',
+    master: '#F39C12'
+  }
+  return map[level] || '#95A5A6'
+}
+
+const getLevelGradient = (level: string): string => {
+  const map: Record<string, string> = {
+    beginner: 'linear-gradient(135deg, #BDC3C7, #95A5A6)',
+    apprentice: 'linear-gradient(135deg, #5DADE2, #3498DB)',
+    gardener: 'linear-gradient(135deg, #58D68D, #27AE60)',
+    expert: 'linear-gradient(135deg, #BB8FCE, #9B59B6)',
+    master: 'linear-gradient(135deg, #F5B041, #F39C12)'
+  }
+  return map[level] || 'linear-gradient(135deg, #BDC3C7, #95A5A6)'
+}
+
+const getLevelIcon = (level: string): string => {
+  const map: Record<string, string> = {
+    beginner: '🌱',
+    apprentice: '🌿',
+    gardener: '🌳',
+    expert: '🏆',
+    master: '👑'
+  }
+  return map[level] || '🌱'
 }
 </script>
 
@@ -289,6 +476,214 @@ const completeReminder = (id: string) => {
     padding: 24px;
     color: $brown-light;
     font-size: 14px;
+  }
+
+  .smart-section {
+    margin-bottom: 24px;
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      h3 {
+        font-size: 16px;
+        color: $brown-dark;
+      }
+    }
+
+    .smart-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .smart-card {
+      background: $cream-light;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: transform 0.2s, box-shadow 0.2s;
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      &.suggestions-card {
+        border-left: 4px solid $forest-green;
+      }
+
+      &.warnings-card {
+        border-left: 4px solid #E74C3C;
+      }
+
+      .smart-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        font-weight: 600;
+        color: $brown-dark;
+
+        .el-icon {
+          font-size: 18px;
+          color: $forest-green;
+        }
+      }
+
+      .smart-item {
+        display: flex;
+        gap: 12px;
+        padding: 12px;
+        background: $cream-light;
+        border-radius: 10px;
+        margin-bottom: 8px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+
+        .smart-item-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          flex-shrink: 0;
+        }
+
+        .smart-item-content {
+          flex: 1;
+          min-width: 0;
+
+          .smart-item-title {
+            font-weight: 500;
+            color: $brown-dark;
+            font-size: 14px;
+            margin-bottom: 2px;
+          }
+
+          .smart-item-desc {
+            font-size: 12px;
+            color: $brown-light;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+        }
+      }
+    }
+  }
+
+  .achievement-preview {
+    margin-bottom: 24px;
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      h3 {
+        font-size: 16px;
+        color: $brown-dark;
+      }
+    }
+
+    .achievement-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .achievement-stat {
+      background: $cream-light;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+      .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 22px;
+        flex-shrink: 0;
+
+        .el-icon {
+          font-size: 22px;
+        }
+      }
+
+      .stat-info {
+        .stat-value {
+          font-size: 20px;
+          font-weight: 700;
+          color: $brown-dark;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: $brown-light;
+        }
+      }
+    }
+
+    .achievement-preview-list {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .achievement-preview-item {
+      background: $cream-light;
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      opacity: 0.6;
+      transition: all 0.2s;
+
+      &.unlocked {
+        opacity: 1;
+      }
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      .achievement-icon {
+        font-size: 28px;
+        flex-shrink: 0;
+      }
+
+      .achievement-info {
+        flex: 1;
+        min-width: 0;
+
+        .achievement-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: $brown-dark;
+          margin-bottom: 4px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+    }
   }
 }
 </style>

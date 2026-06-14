@@ -23,6 +23,20 @@
         </div>
         <el-switch v-model="settings.reminderEnabled" @change="saveSettings" />
       </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">智能养护建议</div>
+          <div class="setting-desc">基于养护数据生成个性化养护建议</div>
+        </div>
+        <el-switch v-model="settings.smartSuggestionsEnabled" @change="saveSmartSuggestions" />
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">智能预警</div>
+          <div class="setting-desc">分析养护规律，提醒可能的养护风险和误区</div>
+        </div>
+        <el-switch v-model="settings.warningAlertsEnabled" @change="saveWarningAlerts" />
+      </div>
     </div>
 
     <div class="settings-section">
@@ -266,7 +280,9 @@ const settings = reactive<AppSettings>({
   autoStart: false,
   reminderEnabled: true,
   theme: 'forest',
-  dataDir: ''
+  dataDir: '',
+  smartSuggestionsEnabled: true,
+  warningAlertsEnabled: true
 })
 
 const encryptionEnabled = ref(false)
@@ -297,6 +313,16 @@ const changePasswordForm = reactive({
 const saveSettings = () => {
   store.updateSettings({ ...settings })
   ElMessage.success('设置已保存')
+}
+
+const saveSmartSuggestions = (enabled: boolean) => {
+  store.setSmartSuggestionsEnabled(enabled)
+  ElMessage.success(enabled ? '智能养护建议已开启' : '智能养护建议已关闭')
+}
+
+const saveWarningAlerts = (enabled: boolean) => {
+  store.setWarningAlertsEnabled(enabled)
+  ElMessage.success(enabled ? '智能预警已开启' : '智能预警已关闭')
 }
 
 const setPassword = () => {
@@ -433,7 +459,11 @@ const getDataKeyLabel = (key: string): string => {
     'plant_tracker_reminders': '提醒数据',
     'plant_tracker_knowledge': '知识数据',
     'plant_tracker_settings': '应用设置',
-    'plant_tracker_diary': '日记数据'
+    'plant_tracker_diary': '日记数据',
+    'plant_tracker_achievements': '成就数据',
+    'plant_tracker_suggestions': '建议数据',
+    'plant_tracker_warnings': '预警数据',
+    'plant_tracker_care_score': '养护评分'
   }
   return map[key] || key
 }
@@ -446,6 +476,10 @@ const exportData = () => {
     reminders: store.reminders,
     knowledgeArticles: store.knowledgeArticles,
     settings: store.settings,
+    achievements: store.achievements,
+    suggestions: store.suggestions,
+    warnings: store.warnings,
+    careScore: store.careScore,
     exportDate: new Date().toISOString()
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -484,6 +518,22 @@ const importData = (file: any) => {
       if (data.knowledgeArticles?.length >= 0) {
         store.$patch({ knowledgeArticles: data.knowledgeArticles })
         localStorage.setItem('plant_tracker_knowledge', JSON.stringify(data.knowledgeArticles))
+      }
+      if (data.achievements?.length >= 0) {
+        store.$patch({ achievements: data.achievements })
+        localStorage.setItem('plant_tracker_achievements', JSON.stringify(data.achievements))
+      }
+      if (data.suggestions?.length >= 0) {
+        store.$patch({ suggestions: data.suggestions })
+        localStorage.setItem('plant_tracker_suggestions', JSON.stringify(data.suggestions))
+      }
+      if (data.warnings?.length >= 0) {
+        store.$patch({ warnings: data.warnings })
+        localStorage.setItem('plant_tracker_warnings', JSON.stringify(data.warnings))
+      }
+      if (data.careScore) {
+        store.$patch({ careScore: data.careScore })
+        localStorage.setItem('plant_tracker_care_score', JSON.stringify(data.careScore))
       }
       store.importData()
       ElMessage.success('数据导入成功')

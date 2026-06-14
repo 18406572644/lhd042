@@ -72,6 +72,8 @@ export interface AppSettings {
   reminderEnabled: boolean
   theme: 'forest' | 'light'
   dataDir: string
+  smartSuggestionsEnabled: boolean
+  warningAlertsEnabled: boolean
 }
 
 export interface SecuritySettings {
@@ -114,6 +116,7 @@ export type OperationType =
   | 'data.export'
   | 'data.clear'
   | 'data.integrity_check'
+  | 'achievement.unlock'
 
 export interface OperationLog {
   id: string
@@ -172,4 +175,91 @@ export interface DiarySearchParams {
   plantId?: string
   keyword?: string
   includePrivate?: boolean
+}
+
+export type AchievementType = 'week_streak' | 'hundred_days' | 'plant_collector' | 'first_plant' | 'care_master' | 'photo_enthusiast' | 'diary_writer' | 'reminder_master'
+
+export interface Achievement {
+  id: string
+  type: AchievementType
+  name: string
+  description: string
+  icon: string
+  unlocked: boolean
+  unlockedAt?: string
+  progress: number
+  target: number
+  rarity: 'common' | 'rare' | 'epic' | 'legendary'
+}
+
+export type SuggestionType = 'watering' | 'fertilizing' | 'sunlight' | 'seasonal' | 'pest_prevention' | 'care_habit' | 'reminder'
+
+export type SuggestionPriority = 'low' | 'medium' | 'high' | 'critical'
+
+export interface CareSuggestion {
+  id: string
+  type: SuggestionType
+  priority: SuggestionPriority
+  title: string
+  content: string
+  plantId?: string
+  plantName?: string
+  actionable: boolean
+  actionLabel?: string
+  actionType?: 'adjust_watering' | 'add_reminder' | 'check_plant' | 'learn_more' | 'adjust_sunlight'
+  dismissed: boolean
+  createdAt: string
+  expiresAt?: string
+}
+
+export type WarningType = 'pest_risk' | 'overwatering' | 'underwatering' | 'nutrient_deficiency' | 'sunburn_risk' | 'cold_damage' | 'care_mistake'
+
+export interface WarningAlert {
+  id: string
+  type: WarningType
+  plantId: string
+  plantName: string
+  title: string
+  description: string
+  riskLevel: 'low' | 'medium' | 'high' | 'critical'
+  evidence: string[]
+  suggestions: string[]
+  dismissed: boolean
+  createdAt: string
+}
+
+export interface CareScore {
+  totalScore: number
+  level: 'beginner' | 'apprentice' | 'gardener' | 'expert' | 'master'
+  consistencyScore: number
+  timelinessScore: number
+  plantHealthScore: number
+  knowledgeScore: number
+  lastCalculated: string
+}
+
+export interface WateringAnalysis {
+  plantId: string
+  plantName: string
+  averageInterval: number
+  recommendedInterval: number
+  consistency: number
+  missedCount: number
+  lastWatered: string
+  nextScheduled: string
+  pattern: 'regular' | 'irregular' | 'overwatering' | 'underwatering'
+}
+
+export interface CareStats {
+  totalCareDays: number
+  currentStreak: number
+  longestStreak: number
+  totalRecords: number
+  waterCount: number
+  fertilizeCount: number
+  pruneCount: number
+  repotCount: number
+  completedReminders: number
+  missedReminders: number
+  averageResponseTime: number
 }

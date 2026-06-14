@@ -14,7 +14,13 @@ import type {
   SecuritySettings,
   OperationLog,
   OperationType,
-  DataIntegrityInfo
+  DataIntegrityInfo,
+  Achievement,
+  CareSuggestion,
+  WarningAlert,
+  CareScore,
+  WateringAnalysis,
+  CareStats
 } from '@/types'
 import { generateId } from '@/utils'
 import {
@@ -40,8 +46,21 @@ import {
   KNOWLEDGE_KEY,
   SETTINGS_KEY,
   DIARY_KEY,
-  DIARY_PASSWORD_KEY
+  DIARY_PASSWORD_KEY,
+  ACHIEVEMENTS_KEY,
+  SUGGESTIONS_KEY,
+  WARNINGS_KEY,
+  CARE_SCORE_KEY
 } from '@/utils/storage'
+import {
+  initAchievements,
+  analyzeWateringPattern,
+  calculateCareStats,
+  calculateCareScore,
+  updateAchievements,
+  generateSuggestions,
+  generateWarnings
+} from '@/utils/careAI'
 import { hashPassword, verifyPassword } from '@/utils/encryption'
 
 export const useAppStore = defineStore('app', {
@@ -55,7 +74,9 @@ export const useAppStore = defineStore('app', {
       autoStart: false,
       reminderEnabled: true,
       theme: 'forest' as const,
-      dataDir: ''
+      dataDir: '',
+      smartSuggestionsEnabled: true,
+      warningAlertsEnabled: true
     } as AppSettings,
     diaryEntries: [] as DiaryEntry[],
     diaryPassword: null as DiaryPassword | null,
@@ -68,7 +89,13 @@ export const useAppStore = defineStore('app', {
     masterPasswordSalt: '',
     dataIntegrityInfo: [] as DataIntegrityInfo[],
     lastActivityTime: Date.now(),
-    autoLockTimer: null as number | null
+    autoLockTimer: null as number | null,
+    achievements: [] as Achievement[],
+    suggestions: [] as CareSuggestion[],
+    warnings: [] as WarningAlert[],
+    careScore: null as CareScore | null,
+    careStats: null as CareStats | null,
+    wateringAnalyses: [] as WateringAnalysis[]
   }),
 
   getters: {
@@ -211,6 +238,41 @@ export const useAppStore = defineStore('app', {
         }
       }
       return maxStreak
+    },
+
+    unlockedAchievements: (state) => state.achievements.filter(a => a.unlocked),
+    lockedAchievements: (state) => state.achievements.filter(a => !a.unlocked),
+    unlockedAchievementsCount: (state) => state.achievements.filter(a => a.unlocked).length,
+    totalAchievementsCount: (state) => state.achievements.length,
+
+    activeSuggestions: (state) => {
+      if (!state.settings.smartSuggestionsEnabled) return []
+      return state.suggestions.filter(s => !s.dismissed)
+        .sort((a, b) => {
+          const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+          return priorityOrder[a.priority] - priorityOrder[b.priority]
+        })
+    },
+    activeSuggestionsCount: (state) => {
+      if (!state.settings.smartSuggestionsEnabled) return 0
+      return state.suggestions.filter(s => !s.dismissed).length
+    },
+
+    activeWarnings: (state) => {
+      if (!state.settings.warningAlertsEnabled) return []
+      return state.warnings.filter(w => !w.dismissed)
+        .sort((a, b) => {
+          const riskOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+          return riskOrder[a.riskLevel] - riskOrder[b.riskLevel]
+        })
+    },
+    activeWarningsCount: (state) => {
+      if (!state.settings.warningAlertsEnabled) return 0
+      return state.warnings.filter(w => !w.dismissed).length
+    },
+
+    getWateringAnalysisByPlantId: (state) => (plantId: string) => {
+      return state.wateringAnalyses.find(w => w.plantId === plantId)
     }
   },
 
@@ -223,6 +285,7 @@ export const useAppStore = defineStore('app', {
       this.updateActivity()
       this.startAutoLockTimer()
       this.runIntegrityCheck()
+      this.analyzeSmartCare()
     },
 
     loadAllData() {
@@ -236,9 +299,13 @@ export const useAppStore = defineStore('app', {
       this.photos = loadFn(PHOTOS_KEY, [])
       this.reminders = loadFn(REMINDERS_KEY, [])
       this.knowledgeArticles = loadFn(KNOWLEDGE_KEY, [])
-      this.settings = loadFn(SETTINGS_KEY, { autoStart: false, reminderEnabled: true, theme: 'forest' as const, dataDir: '' })
+      this.settings = loadFn(SETTINGS_KEY, { autoStart: false, reminderEnabled: true, theme: 'forest' as const, dataDir: '', smartSuggestionsEnabled: true, warningAlertsEnabled: true })
       this.diaryEntries = loadFn(DIARY_KEY, [])
       this.diaryPassword = loadFn(DIARY_PASSWORD_KEY, null)
+      this.achievements = loadFn(ACHIEVEMENTS_KEY, initAchievements())
+      this.suggestions = loadFn(SUGGESTIONS_KEY, [])
+      this.warnings = loadFn(WARNINGS_KEY, [])
+      this.careScore = loadFn(CARE_SCORE_KEY, null)
     },
 
     saveData(key: string, data: any) {
@@ -470,6 +537,7 @@ export const useAppStore = defineStore('app', {
       this.plants.push(newPlant)
       this.saveData(PLANTS_KEY, this.plants)
       this.addOperationLog('plant.add', `添加了植物：${plant.name}`, { plantId: newPlant.id })
+      this.analyzeSmartCare()
       return newPlant
     },
 
@@ -480,6 +548,7 @@ export const useAppStore = defineStore('app', {
         this.plants[index] = { ...this.plants[index], ...data, updatedAt: new Date().toISOString() }
         this.saveData(PLANTS_KEY, this.plants)
         this.addOperationLog('plant.update', `更新了植物信息：${oldName}`, { plantId: id, changes: data })
+        this.analyzeSmartCare()
       }
     },
 
@@ -502,6 +571,7 @@ export const useAppStore = defineStore('app', {
       this.saveData(PHOTOS_KEY, this.photos)
       this.saveData(REMINDERS_KEY, this.reminders)
       this.addOperationLog('plant.delete', `删除了植物：${plantName}`, { plantId: id, plantName })
+      this.analyzeSmartCare()
       return true
     },
 
@@ -511,6 +581,7 @@ export const useAppStore = defineStore('app', {
       this.saveData(CARE_KEY, this.careRecords)
       const plant = this.getPlantById(record.plantId)
       this.addOperationLog('record.add', `为 ${plant?.name || '植物'} 添加了养护记录`, { recordId: newRecord.id, type: record.type })
+      this.analyzeSmartCare()
       return newRecord
     },
 
@@ -543,6 +614,7 @@ export const useAppStore = defineStore('app', {
       this.saveData(PHOTOS_KEY, this.photos)
       const plant = this.getPlantById(photo.plantId)
       this.addOperationLog('photo.add', `为 ${plant?.name || '植物'} 添加了照片`, { photoId: newPhoto.id })
+      this.analyzeSmartCare()
       return newPhoto
     },
 
@@ -609,6 +681,7 @@ export const useAppStore = defineStore('app', {
       this.reminders[index] = updated
       this.saveData(REMINDERS_KEY, this.reminders)
       this.addOperationLog('reminder.complete', `完成了提醒：${reminder.title}`, { reminderId: id })
+      this.analyzeSmartCare()
     },
 
     postponeReminder(id: string, hours?: number, days?: number, customDate?: string, customTime?: string) {
@@ -711,6 +784,7 @@ export const useAppStore = defineStore('app', {
       this.diaryEntries.push(newEntry)
       this.saveData(DIARY_KEY, this.diaryEntries)
       this.addOperationLog('diary.add', `添加了日记：${entry.date}`, { diaryId: newEntry.id })
+      this.analyzeSmartCare()
       return newEntry
     },
 
@@ -798,7 +872,7 @@ export const useAppStore = defineStore('app', {
         }
       }
 
-      const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY]
+      const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY, ACHIEVEMENTS_KEY, SUGGESTIONS_KEY, WARNINGS_KEY, CARE_SCORE_KEY]
       keys.forEach(key => localStorage.removeItem(key))
       this.plants = []
       this.careRecords = []
@@ -806,6 +880,12 @@ export const useAppStore = defineStore('app', {
       this.reminders = []
       this.knowledgeArticles = []
       this.diaryEntries = []
+      this.achievements = initAchievements()
+      this.suggestions = []
+      this.warnings = []
+      this.careScore = null
+      this.careStats = null
+      this.wateringAnalyses = []
       this.addOperationLog('data.clear', '清除了所有数据')
       return true
     },
@@ -816,6 +896,150 @@ export const useAppStore = defineStore('app', {
 
     importData() {
       this.addOperationLog('data.import', '导入了数据')
+    },
+
+    analyzeSmartCare() {
+      if (this.plants.length === 0) return
+
+      this.wateringAnalyses = this.plants.map(plant =>
+        analyzeWateringPattern(plant, this.careRecords, this.reminders)
+      )
+
+      this.careStats = calculateCareStats(
+        this.plants,
+        this.careRecords,
+        this.reminders,
+        this.photos,
+        this.diaryEntries
+      )
+
+      this.careScore = calculateCareScore(this.careStats, this.plants, this.careRecords)
+      this.saveData(CARE_SCORE_KEY, this.careScore)
+
+      const oldAchievements = [...this.achievements]
+      this.achievements = updateAchievements(
+        this.achievements,
+        this.plants,
+        this.careRecords,
+        this.photos,
+        this.diaryEntries,
+        this.reminders,
+        this.careStats
+      )
+      this.saveData(ACHIEVEMENTS_KEY, this.achievements)
+
+      const newlyUnlocked = this.achievements.filter((a, i) =>
+        a.unlocked && !oldAchievements[i]?.unlocked
+      )
+      newlyUnlocked.forEach(ach => {
+        this.addOperationLog('achievement.unlock', `解锁成就：${ach.name}`, { achievementId: ach.id })
+      })
+
+      if (this.settings.smartSuggestionsEnabled) {
+        this.suggestions = generateSuggestions(
+          this.plants,
+          this.careRecords,
+          this.reminders,
+          this.wateringAnalyses,
+          this.careStats
+        )
+        this.saveData(SUGGESTIONS_KEY, this.suggestions)
+      }
+
+      if (this.settings.warningAlertsEnabled) {
+        this.warnings = generateWarnings(
+          this.plants,
+          this.careRecords,
+          this.wateringAnalyses,
+          this.reminders
+        )
+        this.saveData(WARNINGS_KEY, this.warnings)
+      }
+    },
+
+    dismissSuggestion(id: string) {
+      const index = this.suggestions.findIndex(s => s.id === id)
+      if (index !== -1) {
+        this.suggestions[index].dismissed = true
+        this.saveData(SUGGESTIONS_KEY, this.suggestions)
+      }
+    },
+
+    dismissWarning(id: string) {
+      const index = this.warnings.findIndex(w => w.id === id)
+      if (index !== -1) {
+        this.warnings[index].dismissed = true
+        this.saveData(WARNINGS_KEY, this.warnings)
+      }
+    },
+
+    dismissAllSuggestions() {
+      this.suggestions.forEach(s => s.dismissed = true)
+      this.saveData(SUGGESTIONS_KEY, this.suggestions)
+    },
+
+    dismissAllWarnings() {
+      this.warnings.forEach(w => w.dismissed = true)
+      this.saveData(WARNINGS_KEY, this.warnings)
+    },
+
+    executeSuggestionAction(id: string, actionType: string, payload?: any) {
+      const suggestion = this.suggestions.find(s => s.id === id)
+      if (!suggestion) return
+
+      switch (actionType) {
+        case 'adjust_watering':
+          if (suggestion.plantId && payload?.interval) {
+            this.updatePlant(suggestion.plantId, { wateringInterval: payload.interval })
+          }
+          break
+      }
+      this.dismissSuggestion(id)
+    },
+
+    refreshSuggestions() {
+      if (!this.settings.smartSuggestionsEnabled) return
+
+      this.suggestions = generateSuggestions(
+        this.plants,
+        this.careRecords,
+        this.reminders,
+        this.wateringAnalyses,
+        this.careStats || calculateCareStats(this.plants, this.careRecords, this.reminders, this.photos, this.diaryEntries)
+      )
+      this.saveData(SUGGESTIONS_KEY, this.suggestions)
+    },
+
+    refreshWarnings() {
+      if (!this.settings.warningAlertsEnabled) return
+
+      this.warnings = generateWarnings(
+        this.plants,
+        this.careRecords,
+        this.wateringAnalyses,
+        this.reminders
+      )
+      this.saveData(WARNINGS_KEY, this.warnings)
+    },
+
+    setSmartSuggestionsEnabled(enabled: boolean) {
+      this.updateSettings({ smartSuggestionsEnabled: enabled })
+      if (!enabled) {
+        this.suggestions = []
+        localStorage.removeItem(SUGGESTIONS_KEY)
+      } else {
+        this.analyzeSmartCare()
+      }
+    },
+
+    setWarningAlertsEnabled(enabled: boolean) {
+      this.updateSettings({ warningAlertsEnabled: enabled })
+      if (!enabled) {
+        this.warnings = []
+        localStorage.removeItem(WARNINGS_KEY)
+      } else {
+        this.analyzeSmartCare()
+      }
     }
   }
 })
