@@ -1,0 +1,20 @@
+[package]
+name = "plant-growth-tracker"
+version = "1.0.0"
+description = "清新森系风的本地植物生长记录桌面工具"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["dialog-all", "fs-all", "notification-all", "shell-open", "system-tray", "autostart"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
