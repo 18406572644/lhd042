@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, CompletionFeedback } from '@/types'
-import { generateId, combineDateAndTime as combineDateTime } from '@/utils'
+import { generateId } from '@/utils'
 import {
   plants as plantsRef,
   careRecords as careRecordsRef,
@@ -173,61 +173,73 @@ export const useAppStore = defineStore('app', {
 
     completeReminder(id: string, feedback?: CompletionFeedback, note?: string) {
       const index = this.reminders.findIndex(r => r.id === id)
-      if (index !== -1) {
-        this.reminders[index].completed = true
-        this.reminders[index].completedAt = new Date().toISOString()
-        if (feedback) this.reminders[index].completionFeedback = feedback
-        if (note) this.reminders[index].completionNote = note
-        const reminder = this.reminders[index]
-        if (reminder.repeatInterval && reminder.repeatUnit) {
-          const multiplier = reminder.repeatUnit === 'day' ? 1 : reminder.repeatUnit === 'week' ? 7 : 30
-          const nextDate = new Date(reminder.scheduledDate)
-          nextDate.setDate(nextDate.getDate() + reminder.repeatInterval * multiplier)
-          this.addReminder({
-            plantId: reminder.plantId,
-            type: reminder.type,
-            title: reminder.title,
-            scheduledDate: nextDate.toISOString().split('T')[0],
-            scheduledTime: reminder.scheduledTime,
-            repeatInterval: reminder.repeatInterval,
-            repeatUnit: reminder.repeatUnit
-          })
-        }
-        localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      if (index === -1) return
+      const reminder = this.reminders[index]
+      const updated: Reminder = {
+        ...reminder,
+        completed: true,
+        completedAt: new Date().toISOString(),
       }
+      if (feedback) updated.completionFeedback = feedback
+      if (note) updated.completionNote = note
+      if (reminder.repeatInterval && reminder.repeatUnit) {
+        const multiplier = reminder.repeatUnit === 'day' ? 1 : reminder.repeatUnit === 'week' ? 7 : 30
+        const datePart = reminder.scheduledDate.split('T')[0]
+        const [year, month, day] = datePart.split('-').map(Number)
+        const nextDate = new Date(year, month - 1, day)
+        nextDate.setDate(nextDate.getDate() + reminder.repeatInterval * multiplier)
+        const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}`
+        this.addReminder({
+          plantId: reminder.plantId,
+          type: reminder.type,
+          title: reminder.title,
+          scheduledDate: nextDateStr,
+          scheduledTime: reminder.scheduledTime,
+          repeatInterval: reminder.repeatInterval,
+          repeatUnit: reminder.repeatUnit
+        })
+      }
+      this.reminders[index] = updated
+      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
     },
 
     postponeReminder(id: string, hours?: number, days?: number, customDate?: string, customTime?: string) {
       const index = this.reminders.findIndex(r => r.id === id)
-      if (index !== -1) {
-        const reminder = this.reminders[index]
-        let newDate = new Date(reminder.scheduledDate)
-        let newTime = reminder.scheduledTime
-        if (hours) {
-          const combinedIso = combineDateTime(reminder.scheduledDate, reminder.scheduledTime || '00:00')
-          const combinedDate = new Date(combinedIso)
-          combinedDate.setHours(combinedDate.getHours() + hours)
-          newDate = combinedDate
-          newTime = `${String(combinedDate.getHours()).padStart(2, '0')}:${String(combinedDate.getMinutes()).padStart(2, '0')}`
-        }
-        if (days) {
-          newDate.setDate(newDate.getDate() + days)
-        }
-        if (customDate) {
-          newDate = new Date(customDate)
-        }
-        if (customTime) {
-          newTime = customTime
-        }
-        this.reminders[index].scheduledDate = newDate.toISOString().split('T')[0]
-        if (newTime) this.reminders[index].scheduledTime = newTime
-        this.reminders[index].postponedCount = (this.reminders[index].postponedCount || 0) + 1
-        localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      if (index === -1) return
+      const reminder = this.reminders[index]
+      const datePart = reminder.scheduledDate.split('T')[0]
+      const timePart = reminder.scheduledTime || '00:00'
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [h, m] = timePart.split(':').map(Number)
+      const combined = new Date(year, month - 1, day, h || 0, m || 0, 0, 0)
+      if (hours && hours > 0) {
+        combined.setHours(combined.getHours() + hours)
       }
+      if (days && days > 0) {
+        combined.setDate(combined.getDate() + days)
+      }
+      if (customDate) {
+        const [cy, cmo, cd] = customDate.split('T')[0].split('-').map(Number)
+        combined.setFullYear(cy, cmo - 1, cd)
+      }
+      if (customTime) {
+        const [ch, cm] = customTime.split(':').map(Number)
+        combined.setHours(ch || 0, cm || 0, 0, 0)
+      }
+      const newDateStr = `${combined.getFullYear()}-${String(combined.getMonth() + 1).padStart(2, '0')}-${String(combined.getDate()).padStart(2, '0')}`
+      const newTimeStr = `${String(combined.getHours()).padStart(2, '0')}:${String(combined.getMinutes()).padStart(2, '0')}`
+      this.reminders[index] = {
+        ...this.reminders[index],
+        scheduledDate: newDateStr,
+        scheduledTime: newTimeStr,
+        postponedCount: (this.reminders[index].postponedCount || 0) + 1
+      }
+      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
     },
 
     batchCompleteReminders(ids: string[], feedback?: CompletionFeedback) {
-      ids.forEach(id => this.completeReminder(id, feedback))
+      const idsCopy = [...ids]
+      idsCopy.forEach(id => this.completeReminder(id, feedback))
     },
 
     batchDeleteReminders(ids: string[]) {
@@ -236,7 +248,8 @@ export const useAppStore = defineStore('app', {
     },
 
     batchPostponeReminders(ids: string[], hours?: number, days?: number) {
-      ids.forEach(id => this.postponeReminder(id, hours, days))
+      const idsCopy = [...ids]
+      idsCopy.forEach(id => this.postponeReminder(id, hours, days))
     },
 
     deleteReminder(id: string) {

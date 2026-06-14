@@ -290,8 +290,8 @@
         <div class="postpone-options">
           <el-button @click="confirmBatchPostpone(1)">推迟 1 小时</el-button>
           <el-button @click="confirmBatchPostpone(3)">推迟 3 小时</el-button>
-          <el-button @click="confirmBatchPostpone(0, 1)">推迟到明天</el-button>
-          <el-button @click="confirmBatchPostpone(0, 7)">推迟一周</el-button>
+          <el-button @click="confirmBatchPostpone(undefined, 1)">推迟到明天</el-button>
+          <el-button @click="confirmBatchPostpone(undefined, 7)">推迟一周</el-button>
         </div>
       </div>
     </el-dialog>
@@ -540,7 +540,9 @@ const openBatchPostpone = () => {
 }
 
 const confirmBatchPostpone = (hours?: number, days?: number) => {
-  store.batchPostponeReminders(selectedIds.value, hours, days)
+  const effectiveHours = hours && hours > 0 ? hours : undefined
+  const effectiveDays = days && days > 0 ? days : undefined
+  store.batchPostponeReminders([...selectedIds.value], effectiveHours, effectiveDays)
   ElMessage.success(`已延期 ${selectedIds.value.length} 个提醒`)
   showBatchPostponeDialog.value = false
   clearSelection()
