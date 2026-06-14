@@ -241,6 +241,15 @@
     </el-dialog>
 
     <el-image-viewer v-if="showViewer" :url-list="[viewerUrl]" @close="showViewer = false" />
+
+    <PasswordConfirmDialog
+      v-model="showDeleteConfirm"
+      title="确认删除"
+      description="此操作将永久删除该数据，且无法恢复。请输入密码确认。"
+      confirm-text="确认删除"
+      :show-warning="true"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>
 
@@ -249,7 +258,8 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { formatDate, statusLabel, getStatusColor, sunlightLabel, difficultyLabel, careTypeLabel, getCareTypeColor, getPlantEmoji, compressImage, getDefaultTime } from '@/utils'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import PasswordConfirmDialog from '@/components/PasswordConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -266,6 +276,10 @@ const showReminderDialog = ref(false)
 const showViewer = ref(false)
 const viewerUrl = ref('')
 const photoFileList = ref<any[]>([])
+const showDeleteConfirm = ref(false)
+const deletingRecordId = ref('')
+const deletingPhotoId = ref('')
+const deletingReminderId = ref('')
 
 const filteredRecords = computed(() => {
   const records = store.getRecordsByPlantId(plantId.value)
@@ -323,7 +337,14 @@ const addRecord = () => {
 }
 
 const deleteRecord = (id: string) => {
-  store.deleteRecord(id)
+  if (store.hasMasterPassword) {
+    deletingRecordId.value = id
+    deletingPhotoId.value = ''
+    deletingReminderId.value = ''
+    showDeleteConfirm.value = true
+  } else {
+    store.deleteRecord(id)
+  }
 }
 
 const handlePhotoChange = async (file: any) => {
@@ -352,7 +373,14 @@ const addPhoto = () => {
 }
 
 const deletePhoto = (id: string) => {
-  store.deletePhoto(id)
+  if (store.hasMasterPassword) {
+    deletingRecordId.value = ''
+    deletingPhotoId.value = id
+    deletingReminderId.value = ''
+    showDeleteConfirm.value = true
+  } else {
+    store.deletePhoto(id)
+  }
 }
 
 const addReminder = () => {
@@ -383,7 +411,28 @@ const completeReminder = (id: string) => {
 }
 
 const deleteReminder = (id: string) => {
-  store.deleteReminder(id)
+  if (store.hasMasterPassword) {
+    deletingRecordId.value = ''
+    deletingPhotoId.value = ''
+    deletingReminderId.value = id
+    showDeleteConfirm.value = true
+  } else {
+    store.deleteReminder(id)
+  }
+}
+
+const confirmDelete = () => {
+  if (deletingRecordId.value) {
+    store.deleteRecord(deletingRecordId.value)
+    deletingRecordId.value = ''
+  } else if (deletingPhotoId.value) {
+    store.deletePhoto(deletingPhotoId.value)
+    deletingPhotoId.value = ''
+  } else if (deletingReminderId.value) {
+    store.deleteReminder(deletingReminderId.value)
+    deletingReminderId.value = ''
+  }
+  showDeleteConfirm.value = false
 }
 
 onMounted(() => {

@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout">
+  <div class="app-layout" @click="updateActivity" @mousemove="updateActivity" @keydown="updateActivity">
     <div class="sidebar" :class="{ collapsed: isCollapsed }">
       <div class="sidebar-header">
         <div class="logo-area" v-if="!isCollapsed">
@@ -56,12 +56,20 @@
           <el-icon><DataAnalysis /></el-icon>
           <template #title>数据统计</template>
         </el-menu-item>
+        <el-menu-item index="/logs" v-if="appStore.hasMasterPassword">
+          <el-icon><Document /></el-icon>
+          <template #title>操作日志</template>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>设置</template>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
+        <div class="lock-btn" v-if="appStore.hasMasterPassword && !isCollapsed" @click="appStore.lockApp()">
+          <el-icon :size="16"><Lock /></el-icon>
+          <span class="lock-text">锁定</span>
+        </div>
         <div class="collapse-btn" @click="isCollapsed = !isCollapsed">
           <el-icon :size="18">
             <DArrowLeft v-if="!isCollapsed" />
@@ -89,6 +97,12 @@
           <span class="page-subtitle" v-if="currentDate">{{ currentDate }}</span>
         </div>
         <div class="top-bar-right">
+          <div class="privacy-badge" v-if="appStore.isPrivacyModeEnabled" title="隐私模式已开启">
+            <el-icon><Hide /></el-icon>
+          </div>
+          <div class="lock-indicator" v-if="appStore.hasMasterPassword" @click="appStore.lockApp()" title="点击锁定应用">
+            <el-icon><Lock /></el-icon>
+          </div>
           <el-badge :value="pendingCount" :max="9" :hidden="pendingCount === 0">
             <el-button circle size="small" @click="$router.push('/reminders')">
               <el-icon><Bell /></el-icon>
@@ -107,14 +121,17 @@
         </router-view>
       </div>
     </div>
+    <LockScreen v-model="appStore.isLocked" @unlocked="onUnlocked" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { formatDate } from '@/utils'
+import LockScreen from '@/components/LockScreen.vue'
+import { Lock, Hide, Document } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -124,6 +141,7 @@ const isCollapsed = ref(false)
 const currentRoute = computed(() => {
   if (route.path.startsWith('/plant/')) return '/plants'
   if (route.path.startsWith('/diary/')) return '/diary'
+  if (route.path.startsWith('/logs')) return '/logs'
   return route.path
 })
 
@@ -144,6 +162,23 @@ const handleSelect = (index: string) => {
 const handleAddPlant = () => {
   router.push({ path: '/plants', query: { action: 'add' } })
 }
+
+const updateActivity = () => {
+  appStore.updateActivity()
+}
+
+const onUnlocked = () => {
+  appStore.updateActivity()
+  appStore.startAutoLockTimer()
+}
+
+onMounted(() => {
+  appStore.initApp()
+})
+
+onUnmounted(() => {
+  appStore.stopAutoLockTimer()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -266,9 +301,35 @@ const handleAddPlant = () => {
   .sidebar-footer {
     padding: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+
+    .lock-btn {
+      flex: 1;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: rgba(245, 240, 230, 0.6);
+      transition: all 0.2s;
+      background: rgba(245, 240, 230, 0.05);
+
+      .lock-text {
+        font-size: 13px;
+      }
+
+      &:hover {
+        background: rgba(245, 240, 230, 0.15);
+        color: #F5F0E6;
+      }
+    }
 
     .collapse-btn {
-      width: 100%;
+      width: 36px;
       height: 36px;
       display: flex;
       align-items: center;
@@ -277,6 +338,7 @@ const handleAddPlant = () => {
       cursor: pointer;
       color: rgba(245, 240, 230, 0.6);
       transition: all 0.2s;
+      flex-shrink: 0;
 
       &:hover {
         background: rgba(245, 240, 230, 0.1);
@@ -335,6 +397,38 @@ const handleAddPlant = () => {
     display: flex;
     align-items: center;
     gap: 8px;
+
+    .privacy-badge {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(107, 142, 90, 0.15);
+      color: $forest-green;
+      cursor: default;
+      font-size: 16px;
+    }
+
+    .lock-indicator {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(139, 115, 85, 0.1);
+      color: $brown;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 16px;
+
+      &:hover {
+        background: rgba(139, 115, 85, 0.2);
+        color: $brown-dark;
+      }
+    }
 
     .el-button {
       background: $cream;

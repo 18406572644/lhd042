@@ -1,53 +1,74 @@
 import { defineStore } from 'pinia'
-import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, CompletionFeedback, DiaryEntry, DiaryPassword, DiarySearchParams, DiaryMood } from '@/types'
+import type {
+  Plant,
+  CareRecord,
+  PhotoRecord,
+  Reminder,
+  KnowledgeArticle,
+  AppSettings,
+  CompletionFeedback,
+  DiaryEntry,
+  DiaryPassword,
+  DiarySearchParams,
+  DiaryMood,
+  SecuritySettings,
+  OperationLog,
+  OperationType,
+  DataIntegrityInfo
+} from '@/types'
 import { generateId } from '@/utils'
 import {
-  plants as plantsRef,
-  careRecords as careRecordsRef,
-  photos as photosRef,
-  reminders as remindersRef,
-  knowledgeArticles as knowledgeRef,
-  settings as settingsRef,
-  diaryEntries as diaryRef,
-  diaryPassword as diaryPasswordRef,
-  savePlants,
-  saveCareRecords,
-  savePhotos,
-  saveReminders,
-  saveKnowledge,
-  saveSettings,
-  saveDiary,
-  saveDiaryPassword,
-  initDefaultData,
-  getFromStorage
+  getFromStorage,
+  setToStorage,
+  getEncryptedFromStorage,
+  setEncryptedToStorage,
+  getSecuritySettings,
+  setSecuritySettings,
+  removeSecuritySettings,
+  getOperationLogs,
+  addOperationLog as storageAddOperationLog,
+  verifyDataChecksum,
+  verifyAllDataChecksums,
+  updateDataChecksum,
+  encryptAllData,
+  decryptAllData,
+  isDataEncrypted,
+  PLANTS_KEY,
+  CARE_KEY,
+  PHOTOS_KEY,
+  REMINDERS_KEY,
+  KNOWLEDGE_KEY,
+  SETTINGS_KEY,
+  DIARY_KEY,
+  DIARY_PASSWORD_KEY
 } from '@/utils/storage'
-
-const PLANTS_KEY = 'plant_tracker_plants'
-const CARE_KEY = 'plant_tracker_care_records'
-const PHOTOS_KEY = 'plant_tracker_photos'
-const REMINDERS_KEY = 'plant_tracker_reminders'
-const KNOWLEDGE_KEY = 'plant_tracker_knowledge'
-const SETTINGS_KEY = 'plant_tracker_settings'
-const DIARY_KEY = 'plant_tracker_diary'
-const DIARY_PASSWORD_KEY = 'plant_tracker_diary_password'
+import { hashPassword, verifyPassword } from '@/utils/encryption'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
-    plants: getFromStorage<Plant[]>(PLANTS_KEY, []),
-    careRecords: getFromStorage<CareRecord[]>(CARE_KEY, []),
-    photos: getFromStorage<PhotoRecord[]>(PHOTOS_KEY, []),
-    reminders: getFromStorage<Reminder[]>(REMINDERS_KEY, []),
-    knowledgeArticles: getFromStorage<KnowledgeArticle[]>(KNOWLEDGE_KEY, []),
-    settings: getFromStorage<AppSettings>(SETTINGS_KEY, {
+    plants: [] as Plant[],
+    careRecords: [] as CareRecord[],
+    photos: [] as PhotoRecord[],
+    reminders: [] as Reminder[],
+    knowledgeArticles: [] as KnowledgeArticle[],
+    settings: {
       autoStart: false,
       reminderEnabled: true,
-      theme: 'forest',
+      theme: 'forest' as const,
       dataDir: ''
-    }),
-    diaryEntries: getFromStorage<DiaryEntry[]>(DIARY_KEY, []),
-    diaryPassword: getFromStorage<DiaryPassword | null>(DIARY_PASSWORD_KEY, null),
+    } as AppSettings,
+    diaryEntries: [] as DiaryEntry[],
+    diaryPassword: null as DiaryPassword | null,
     diaryUnlocked: false,
-    isReady: false
+    isReady: false,
+    securitySettings: null as SecuritySettings | null,
+    operationLogs: [] as OperationLog[],
+    isLocked: false,
+    masterPasswordHash: '',
+    masterPasswordSalt: '',
+    dataIntegrityInfo: [] as DataIntegrityInfo[],
+    lastActivityTime: Date.now(),
+    autoLockTimer: null as number | null
   }),
 
   getters: {
@@ -117,6 +138,34 @@ export const useAppStore = defineStore('app', {
       return !state.diaryPassword || state.diaryUnlocked
     },
 
+    hasMasterPassword: (state) => {
+      return !!state.masterPasswordHash
+    },
+
+    isEncryptionEnabled: (state) => {
+      return state.securitySettings?.encryptionEnabled ?? false
+    },
+
+    isPrivacyModeEnabled: (state) => {
+      return state.securitySettings?.privacyMode ?? false
+    },
+
+    isAutoLockEnabled: (state) => {
+      return state.securitySettings?.autoLockEnabled ?? false
+    },
+
+    autoLockMinutes: (state) => {
+      return state.securitySettings?.autoLockMinutes ?? 5
+    },
+
+    recentOperationLogs: (state) => (limit: number = 50) => {
+      return state.operationLogs.slice(0, limit)
+    },
+
+    getOperationLogsByType: (state) => (type: OperationType) => {
+      return state.operationLogs.filter(log => log.type === type)
+    },
+
     getDiaryMoodStats: (state) => (month?: number, year?: number) => {
       let entries = state.diaryEntries
       if (month !== undefined && year !== undefined) {
@@ -167,57 +216,285 @@ export const useAppStore = defineStore('app', {
 
   actions: {
     initApp() {
-      initDefaultData()
-      const p = getFromStorage<Plant[]>(PLANTS_KEY, [])
-      const c = getFromStorage<CareRecord[]>(CARE_KEY, [])
-      const ph = getFromStorage<PhotoRecord[]>(PHOTOS_KEY, [])
-      const r = getFromStorage<Reminder[]>(REMINDERS_KEY, [])
-      const k = getFromStorage<KnowledgeArticle[]>(KNOWLEDGE_KEY, [])
-      const s = getFromStorage<AppSettings>(SETTINGS_KEY, { autoStart: false, reminderEnabled: true, theme: 'forest', dataDir: '' })
-      const d = getFromStorage<DiaryEntry[]>(DIARY_KEY, [])
-      const dp = getFromStorage<DiaryPassword | null>(DIARY_PASSWORD_KEY, null)
-      this.plants = p
-      this.careRecords = c
-      this.photos = ph
-      this.reminders = r
-      this.knowledgeArticles = k
-      this.settings = s
-      this.diaryEntries = d
-      this.diaryPassword = dp
+      this.loadSecuritySettings()
+      this.loadOperationLogs()
+      this.loadAllData()
       this.isReady = true
+      this.updateActivity()
+      this.startAutoLockTimer()
+      this.runIntegrityCheck()
+    },
+
+    loadAllData() {
+      const password = this.masterPasswordHash ? this.getMasterPasswordForDecryption() : ''
+      const loadFn = password && this.isEncryptionEnabled
+        ? (key: string, defaultValue: any) => getEncryptedFromStorage(key, password, defaultValue)
+        : getFromStorage
+
+      this.plants = loadFn(PLANTS_KEY, [])
+      this.careRecords = loadFn(CARE_KEY, [])
+      this.photos = loadFn(PHOTOS_KEY, [])
+      this.reminders = loadFn(REMINDERS_KEY, [])
+      this.knowledgeArticles = loadFn(KNOWLEDGE_KEY, [])
+      this.settings = loadFn(SETTINGS_KEY, { autoStart: false, reminderEnabled: true, theme: 'forest' as const, dataDir: '' })
+      this.diaryEntries = loadFn(DIARY_KEY, [])
+      this.diaryPassword = loadFn(DIARY_PASSWORD_KEY, null)
+    },
+
+    saveData(key: string, data: any) {
+      if (this.isEncryptionEnabled && this.masterPasswordHash) {
+        const password = this.getMasterPasswordForDecryption()
+        setEncryptedToStorage(key, data, password)
+      } else {
+        setToStorage(key, data)
+      }
+      updateDataChecksum(key)
+    },
+
+    addOperationLog(type: OperationType, description: string, details?: Record<string, any>) {
+      const log = { type, description, details }
+      storageAddOperationLog(log)
+      this.operationLogs = getOperationLogs()
+    },
+
+    loadSecuritySettings() {
+      this.securitySettings = getSecuritySettings()
+      if (this.securitySettings) {
+        this.masterPasswordHash = this.securitySettings.passwordHash
+        this.masterPasswordSalt = this.securitySettings.passwordHash.split(':')[1] || ''
+      }
+    },
+
+    loadOperationLogs() {
+      this.operationLogs = getOperationLogs()
+    },
+
+    setMasterPassword(password: string, hint?: string): boolean {
+      const { hash, salt } = hashPassword(password)
+      const combinedHash = `${hash}:${salt}`
+
+      this.masterPasswordHash = combinedHash
+      this.masterPasswordSalt = salt
+
+      const settings: SecuritySettings = {
+        encryptionEnabled: this.securitySettings?.encryptionEnabled ?? false,
+        privacyMode: this.securitySettings?.privacyMode ?? false,
+        autoLockEnabled: this.securitySettings?.autoLockEnabled ?? false,
+        autoLockMinutes: this.securitySettings?.autoLockMinutes ?? 5,
+        passwordHash: combinedHash,
+        passwordHint: hint,
+        createdAt: new Date().toISOString()
+      }
+
+      this.securitySettings = settings
+      setSecuritySettings(settings)
+      this.addOperationLog('security.password_set', '设置了主密码')
+      return true
+    },
+
+    verifyMasterPassword(password: string): boolean {
+      if (!this.masterPasswordHash) return true
+      
+      const [storedHash, storedSalt] = this.masterPasswordHash.split(':')
+      if (!storedSalt) {
+        const result = hashPassword(password)
+        return result.hash === this.masterPasswordHash
+      }
+      
+      const isValid = verifyPassword(password, storedHash, storedSalt)
+      if (isValid) {
+        this.isLocked = false
+        this.updateActivity()
+      }
+      return isValid
+    },
+
+    changeMasterPassword(oldPassword: string, newPassword: string, hint?: string): boolean {
+      if (!this.verifyMasterPassword(oldPassword)) return false
+
+      if (this.isEncryptionEnabled) {
+        const decryptSuccess = decryptAllData(oldPassword)
+        if (!decryptSuccess) return false
+        this.setMasterPassword(newPassword, hint)
+        encryptAllData(newPassword)
+      } else {
+        this.setMasterPassword(newPassword, hint)
+      }
+
+      this.addOperationLog('security.password_change', '修改了主密码')
+      return true
+    },
+
+    removeMasterPassword(password: string): boolean {
+      if (!this.verifyMasterPassword(password)) return false
+
+      if (this.isEncryptionEnabled) {
+        const decryptSuccess = decryptAllData(password)
+        if (!decryptSuccess) return false
+      }
+
+      this.masterPasswordHash = ''
+      this.masterPasswordSalt = ''
+      this.securitySettings = null
+      removeSecuritySettings()
+      this.isLocked = false
+      this.stopAutoLockTimer()
+      this.addOperationLog('security.password_remove', '移除了主密码')
+      return true
+    },
+
+    getMasterPasswordForDecryption(): string {
+      return this.masterPasswordHash.split(':')[0] || this.masterPasswordHash
+    },
+
+    enableEncryption(password: string): boolean {
+      if (!this.verifyMasterPassword(password)) return false
+      if (this.isEncryptionEnabled) return true
+
+      encryptAllData(password)
+      
+      if (this.securitySettings) {
+        this.securitySettings.encryptionEnabled = true
+        setSecuritySettings(this.securitySettings)
+      }
+
+      this.loadAllData()
+      this.addOperationLog('security.encryption_enable', '启用了数据加密')
+      return true
+    },
+
+    disableEncryption(password: string): boolean {
+      if (!this.verifyMasterPassword(password)) return false
+      if (!this.isEncryptionEnabled) return true
+
+      const success = decryptAllData(password)
+      if (!success) return false
+
+      if (this.securitySettings) {
+        this.securitySettings.encryptionEnabled = false
+        setSecuritySettings(this.securitySettings)
+      }
+
+      this.loadAllData()
+      this.addOperationLog('security.encryption_disable', '禁用了数据加密')
+      return true
+    },
+
+    setPrivacyMode(enabled: boolean) {
+      if (this.securitySettings) {
+        this.securitySettings.privacyMode = enabled
+        setSecuritySettings(this.securitySettings)
+      }
+    },
+
+    setAutoLock(enabled: boolean, minutes?: number) {
+      if (this.securitySettings) {
+        this.securitySettings.autoLockEnabled = enabled
+        if (minutes !== undefined) {
+          this.securitySettings.autoLockMinutes = minutes
+        }
+        setSecuritySettings(this.securitySettings)
+
+        if (enabled) {
+          this.startAutoLockTimer()
+        } else {
+          this.stopAutoLockTimer()
+        }
+      }
+    },
+
+    updateActivity() {
+      this.lastActivityTime = Date.now()
+    },
+
+    startAutoLockTimer() {
+      this.stopAutoLockTimer()
+      if (!this.isAutoLockEnabled || !this.hasMasterPassword) return
+
+      const checkLock = () => {
+        const idleTime = (Date.now() - this.lastActivityTime) / 1000 / 60
+        if (idleTime >= this.autoLockMinutes) {
+          this.lockApp()
+        }
+      }
+
+      this.autoLockTimer = window.setInterval(checkLock, 60000) as unknown as number
+    },
+
+    stopAutoLockTimer() {
+      if (this.autoLockTimer) {
+        clearInterval(this.autoLockTimer)
+        this.autoLockTimer = null
+      }
+    },
+
+    lockApp() {
+      this.isLocked = true
+      this.diaryUnlocked = false
+    },
+
+    unlockApp(password: string): boolean {
+      const valid = this.verifyMasterPassword(password)
+      if (valid) {
+        this.isLocked = false
+        this.updateActivity()
+      }
+      return valid
+    },
+
+    runIntegrityCheck(): DataIntegrityInfo[] {
+      this.dataIntegrityInfo = verifyAllDataChecksums()
+      const corruptedCount = this.dataIntegrityInfo.filter(i => i.status === 'corrupted').length
+      this.addOperationLog('data.integrity_check', `执行数据完整性校验，发现 ${corruptedCount} 个损坏项`, {
+        results: this.dataIntegrityInfo
+      })
+      return this.dataIntegrityInfo
+    },
+
+    verifyDataKeyIntegrity(key: string): DataIntegrityInfo {
+      const result = verifyDataChecksum(key)
+      return result
     },
 
     addPlant(plant: Omit<Plant, 'id' | 'createdAt' | 'updatedAt'>) {
       const now = new Date().toISOString()
       const newPlant: Plant = { ...plant, id: generateId(), createdAt: now, updatedAt: now }
       this.plants.push(newPlant)
-      localStorage.setItem(PLANTS_KEY, JSON.stringify(this.plants))
+      this.saveData(PLANTS_KEY, this.plants)
+      this.addOperationLog('plant.add', `添加了植物：${plant.name}`, { plantId: newPlant.id })
       return newPlant
     },
 
     updatePlant(id: string, data: Partial<Plant>) {
       const index = this.plants.findIndex(p => p.id === id)
       if (index !== -1) {
+        const oldName = this.plants[index].name
         this.plants[index] = { ...this.plants[index], ...data, updatedAt: new Date().toISOString() }
-        localStorage.setItem(PLANTS_KEY, JSON.stringify(this.plants))
+        this.saveData(PLANTS_KEY, this.plants)
+        this.addOperationLog('plant.update', `更新了植物信息：${oldName}`, { plantId: id, changes: data })
       }
     },
 
     deletePlant(id: string) {
+      const plant = this.plants.find(p => p.id === id)
+      const plantName = plant?.name || '未知植物'
       this.plants = this.plants.filter(p => p.id !== id)
       this.careRecords = this.careRecords.filter(r => r.plantId !== id)
       this.photos = this.photos.filter(p => p.plantId !== id)
       this.reminders = this.reminders.filter(r => r.plantId !== id)
-      localStorage.setItem(PLANTS_KEY, JSON.stringify(this.plants))
-      localStorage.setItem(CARE_KEY, JSON.stringify(this.careRecords))
-      localStorage.setItem(PHOTOS_KEY, JSON.stringify(this.photos))
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(PLANTS_KEY, this.plants)
+      this.saveData(CARE_KEY, this.careRecords)
+      this.saveData(PHOTOS_KEY, this.photos)
+      this.saveData(REMINDERS_KEY, this.reminders)
+      this.addOperationLog('plant.delete', `删除了植物：${plantName}`, { plantId: id, plantName })
     },
 
     addRecord(record: Omit<CareRecord, 'id' | 'createdAt'>) {
       const newRecord: CareRecord = { ...record, id: generateId(), createdAt: new Date().toISOString() }
       this.careRecords.push(newRecord)
-      localStorage.setItem(CARE_KEY, JSON.stringify(this.careRecords))
+      this.saveData(CARE_KEY, this.careRecords)
+      const plant = this.getPlantById(record.plantId)
+      this.addOperationLog('record.add', `为 ${plant?.name || '植物'} 添加了养护记录`, { recordId: newRecord.id, type: record.type })
       return newRecord
     },
 
@@ -225,31 +502,38 @@ export const useAppStore = defineStore('app', {
       const index = this.careRecords.findIndex(r => r.id === id)
       if (index !== -1) {
         this.careRecords[index] = { ...this.careRecords[index], ...data }
-        localStorage.setItem(CARE_KEY, JSON.stringify(this.careRecords))
+        this.saveData(CARE_KEY, this.careRecords)
+        this.addOperationLog('record.update', `更新了养护记录`, { recordId: id, changes: data })
       }
     },
 
     deleteRecord(id: string) {
       this.careRecords = this.careRecords.filter(r => r.id !== id)
-      localStorage.setItem(CARE_KEY, JSON.stringify(this.careRecords))
+      this.saveData(CARE_KEY, this.careRecords)
+      this.addOperationLog('record.delete', `删除了养护记录`, { recordId: id })
     },
 
     addPhoto(photo: Omit<PhotoRecord, 'id' | 'createdAt'>) {
       const newPhoto: PhotoRecord = { ...photo, id: generateId(), createdAt: new Date().toISOString() }
       this.photos.push(newPhoto)
-      localStorage.setItem(PHOTOS_KEY, JSON.stringify(this.photos))
+      this.saveData(PHOTOS_KEY, this.photos)
+      const plant = this.getPlantById(photo.plantId)
+      this.addOperationLog('photo.add', `为 ${plant?.name || '植物'} 添加了照片`, { photoId: newPhoto.id })
       return newPhoto
     },
 
     deletePhoto(id: string) {
       this.photos = this.photos.filter(p => p.id !== id)
-      localStorage.setItem(PHOTOS_KEY, JSON.stringify(this.photos))
+      this.saveData(PHOTOS_KEY, this.photos)
+      this.addOperationLog('photo.delete', `删除了照片`, { photoId: id })
     },
 
     addReminder(reminder: Omit<Reminder, 'id' | 'completed' | 'createdAt'>) {
       const newReminder: Reminder = { ...reminder, id: generateId(), completed: false, createdAt: new Date().toISOString() }
       this.reminders.push(newReminder)
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(REMINDERS_KEY, this.reminders)
+      const plant = this.getPlantById(reminder.plantId)
+      this.addOperationLog('reminder.add', `为 ${plant?.name || '植物'} 添加了提醒`, { reminderId: newReminder.id, type: reminder.type })
       return newReminder
     },
 
@@ -257,7 +541,8 @@ export const useAppStore = defineStore('app', {
       const index = this.reminders.findIndex(r => r.id === id)
       if (index !== -1) {
         this.reminders[index] = { ...this.reminders[index], ...data }
-        localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+        this.saveData(REMINDERS_KEY, this.reminders)
+        this.addOperationLog('reminder.update', `更新了提醒`, { reminderId: id, changes: data })
       }
     },
 
@@ -290,7 +575,8 @@ export const useAppStore = defineStore('app', {
         })
       }
       this.reminders[index] = updated
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(REMINDERS_KEY, this.reminders)
+      this.addOperationLog('reminder.complete', `完成了提醒：${reminder.title}`, { reminderId: id })
     },
 
     postponeReminder(id: string, hours?: number, days?: number, customDate?: string, customTime?: string) {
@@ -324,7 +610,7 @@ export const useAppStore = defineStore('app', {
         scheduledTime: newTimeStr,
         postponedCount: (this.reminders[index].postponedCount || 0) + 1
       }
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(REMINDERS_KEY, this.reminders)
     },
 
     batchCompleteReminders(ids: string[], feedback?: CompletionFeedback) {
@@ -334,7 +620,7 @@ export const useAppStore = defineStore('app', {
 
     batchDeleteReminders(ids: string[]) {
       this.reminders = this.reminders.filter(r => !ids.includes(r.id))
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(REMINDERS_KEY, this.reminders)
     },
 
     batchPostponeReminders(ids: string[], hours?: number, days?: number) {
@@ -343,32 +629,39 @@ export const useAppStore = defineStore('app', {
     },
 
     deleteReminder(id: string) {
+      const reminder = this.reminders.find(r => r.id === id)
       this.reminders = this.reminders.filter(r => r.id !== id)
-      localStorage.setItem(REMINDERS_KEY, JSON.stringify(this.reminders))
+      this.saveData(REMINDERS_KEY, this.reminders)
+      this.addOperationLog('reminder.delete', `删除了提醒：${reminder?.title || '未命名'}`, { reminderId: id })
     },
 
     addKnowledge(article: Omit<KnowledgeArticle, 'id' | 'createdAt'>) {
       const newArticle: KnowledgeArticle = { ...article, id: generateId(), createdAt: new Date().toISOString() }
       this.knowledgeArticles.push(newArticle)
-      localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(this.knowledgeArticles))
+      this.saveData(KNOWLEDGE_KEY, this.knowledgeArticles)
+      this.addOperationLog('knowledge.add', `添加了养护知识：${article.title}`, { articleId: newArticle.id })
       return newArticle
     },
 
     deleteKnowledge(id: string) {
+      const article = this.knowledgeArticles.find(a => a.id === id)
       this.knowledgeArticles = this.knowledgeArticles.filter(a => a.id !== id)
-      localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(this.knowledgeArticles))
+      this.saveData(KNOWLEDGE_KEY, this.knowledgeArticles)
+      this.addOperationLog('knowledge.delete', `删除了养护知识：${article?.title || '未知'}`, { articleId: id })
     },
 
     updateSettings(newSettings: Partial<AppSettings>) {
       this.settings = { ...this.settings, ...newSettings }
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings))
+      this.saveData(SETTINGS_KEY, this.settings)
+      this.addOperationLog('settings.update', '更新了应用设置', { changes: newSettings })
     },
 
     addDiaryEntry(entry: Omit<DiaryEntry, 'id' | 'createdAt' | 'updatedAt'>) {
       const now = new Date().toISOString()
       const newEntry: DiaryEntry = { ...entry, id: generateId(), createdAt: now, updatedAt: now }
       this.diaryEntries.push(newEntry)
-      localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+      this.saveData(DIARY_KEY, this.diaryEntries)
+      this.addOperationLog('diary.add', `添加了日记：${entry.date}`, { diaryId: newEntry.id })
       return newEntry
     },
 
@@ -376,13 +669,15 @@ export const useAppStore = defineStore('app', {
       const index = this.diaryEntries.findIndex(d => d.id === id)
       if (index !== -1) {
         this.diaryEntries[index] = { ...this.diaryEntries[index], ...data, updatedAt: new Date().toISOString() }
-        localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+        this.saveData(DIARY_KEY, this.diaryEntries)
+        this.addOperationLog('diary.update', `更新了日记`, { diaryId: id, changes: data })
       }
     },
 
     deleteDiaryEntry(id: string) {
       this.diaryEntries = this.diaryEntries.filter(d => d.id !== id)
-      localStorage.setItem(DIARY_KEY, JSON.stringify(this.diaryEntries))
+      this.saveData(DIARY_KEY, this.diaryEntries)
+      this.addOperationLog('diary.delete', `删除了日记`, { diaryId: id })
     },
 
     searchDiaryEntries(params: DiarySearchParams): DiaryEntry[] {
@@ -415,21 +710,21 @@ export const useAppStore = defineStore('app', {
     },
 
     setDiaryPassword(password: string, hint?: string) {
-      const passwordHash = this.hashPassword(password)
+      const { hash, salt } = hashPassword(password)
       const passwordData: DiaryPassword = {
-        passwordHash,
+        passwordHash: `${hash}:${salt}`,
         passwordHint: hint,
         createdAt: new Date().toISOString()
       }
       this.diaryPassword = passwordData
       this.diaryUnlocked = true
-      localStorage.setItem(DIARY_PASSWORD_KEY, JSON.stringify(passwordData))
+      setToStorage(DIARY_PASSWORD_KEY, passwordData)
     },
 
     verifyDiaryPassword(password: string): boolean {
       if (!this.diaryPassword) return true
-      const hash = this.hashPassword(password)
-      const valid = hash === this.diaryPassword.passwordHash
+      const [storedHash, storedSalt] = this.diaryPassword.passwordHash.split(':')
+      const valid = verifyPassword(password, storedHash, storedSalt)
       if (valid) {
         this.diaryUnlocked = true
       }
@@ -446,14 +741,24 @@ export const useAppStore = defineStore('app', {
       localStorage.removeItem(DIARY_PASSWORD_KEY)
     },
 
-    hashPassword(password: string): string {
-      let hash = 0
-      for (let i = 0; i < password.length; i++) {
-        const char = password.charCodeAt(i)
-        hash = ((hash << 5) - hash) + char
-        hash = hash & hash
-      }
-      return hash.toString(36)
+    clearAllData() {
+      const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY]
+      keys.forEach(key => localStorage.removeItem(key))
+      this.plants = []
+      this.careRecords = []
+      this.photos = []
+      this.reminders = []
+      this.knowledgeArticles = []
+      this.diaryEntries = []
+      this.addOperationLog('data.clear', '清除了所有数据')
+    },
+
+    exportData() {
+      this.addOperationLog('data.export', '导出了所有数据')
+    },
+
+    importData() {
+      this.addOperationLog('data.import', '导入了数据')
     }
   }
 })

@@ -74,6 +74,71 @@ export interface AppSettings {
   dataDir: string
 }
 
+export interface SecuritySettings {
+  encryptionEnabled: boolean
+  privacyMode: boolean
+  autoLockEnabled: boolean
+  autoLockMinutes: number
+  passwordHash: string
+  passwordHint?: string
+  createdAt: string
+}
+
+export type OperationType =
+  | 'plant.add'
+  | 'plant.update'
+  | 'plant.delete'
+  | 'record.add'
+  | 'record.update'
+  | 'record.delete'
+  | 'photo.add'
+  | 'photo.delete'
+  | 'reminder.add'
+  | 'reminder.update'
+  | 'reminder.delete'
+  | 'reminder.complete'
+  | 'knowledge.add'
+  | 'knowledge.delete'
+  | 'diary.add'
+  | 'diary.update'
+  | 'diary.delete'
+  | 'settings.update'
+  | 'security.password_set'
+  | 'security.password_change'
+  | 'security.password_remove'
+  | 'security.encryption_enable'
+  | 'security.encryption_disable'
+  | 'data.import'
+  | 'data.export'
+  | 'data.clear'
+  | 'data.integrity_check'
+
+export interface OperationLog {
+  id: string
+  type: OperationType
+  description: string
+  details?: Record<string, any>
+  timestamp: string
+  ip?: string
+  userAgent?: string
+}
+
+export interface DataIntegrityInfo {
+  key: string
+  checksum: string
+  lastChecked: string
+  status: 'valid' | 'corrupted' | 'unknown'
+  recordCount: number
+}
+
+export interface EncryptedData {
+  iv: string
+  ciphertext: string
+  salt: string
+  version: string
+  algorithm: string
+}
+
 export type DiaryMood = 'happy' | 'calm' | 'worried' | 'surprised' | 'sad' | 'excited' | 'grateful' | 'tired'
 
 export type WeatherCondition = 'sunny' | 'cloudy' | 'rainy' | 'snowy' | 'windy' | 'foggy' | 'hot' | 'cold'

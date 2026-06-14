@@ -26,6 +26,117 @@
     </div>
 
     <div class="settings-section">
+      <h3 class="section-title">🔒 安全设置</h3>
+      <div class="setting-item" v-if="!store.hasMasterPassword">
+        <div class="setting-info">
+          <div class="setting-name">设置主密码</div>
+          <div class="setting-desc">设置密码后可启用加密、自动锁定等安全功能</div>
+        </div>
+        <el-button type="primary" plain @click="showSetPasswordDialog = true">设置密码</el-button>
+      </div>
+      <div class="setting-item" v-else>
+        <div class="setting-info">
+          <div class="setting-name">主密码</div>
+          <div class="setting-desc">已设置主密码，保护数据安全</div>
+        </div>
+        <div class="setting-actions">
+          <el-button plain @click="showChangePasswordDialog = true">修改密码</el-button>
+          <el-button type="danger" plain @click="showRemovePasswordDialog = true">移除密码</el-button>
+        </div>
+      </div>
+      <div class="setting-item" v-if="store.hasMasterPassword">
+        <div class="setting-info">
+          <div class="setting-name">数据加密存储</div>
+          <div class="setting-desc">
+            使用 AES-256 加密算法保护本地数据
+            <el-tag v-if="store.isEncryptionEnabled" type="success" size="small" round style="margin-left: 8px;">已启用</el-tag>
+            <el-tag v-else type="info" size="small" round style="margin-left: 8px;">未启用</el-tag>
+          </div>
+        </div>
+        <el-switch
+          v-model="encryptionEnabled"
+          @change="toggleEncryption"
+          :disabled="!store.hasMasterPassword"
+        />
+      </div>
+      <div class="setting-item" v-if="store.hasMasterPassword">
+        <div class="setting-info">
+          <div class="setting-name">隐私模式</div>
+          <div class="setting-desc">隐藏敏感数据（如植物价值、购买价格等扩展字段）</div>
+        </div>
+        <el-switch
+          v-model="privacyMode"
+          @change="togglePrivacyMode"
+          :disabled="!store.hasMasterPassword"
+        />
+      </div>
+      <div class="setting-item" v-if="store.hasMasterPassword">
+        <div class="setting-info">
+          <div class="setting-name">自动锁定</div>
+          <div class="setting-desc">一段时间无操作后自动锁定应用</div>
+        </div>
+        <div class="auto-lock-controls">
+          <el-switch
+            v-model="autoLockEnabled"
+            @change="toggleAutoLock"
+            :disabled="!store.hasMasterPassword"
+          />
+          <el-input-number
+            v-if="autoLockEnabled"
+            v-model="autoLockMinutes"
+            :min="1"
+            :max="60"
+            size="small"
+            style="width: 120px; margin-left: 12px;"
+            @change="updateAutoLockMinutes"
+          />
+          <span v-if="autoLockEnabled" class="auto-lock-unit">分钟</span>
+        </div>
+      </div>
+      <div class="setting-item" v-if="store.hasMasterPassword">
+        <div class="setting-info">
+          <div class="setting-name">立即锁定</div>
+          <div class="setting-desc">手动锁定应用，需要输入密码才能继续使用</div>
+        </div>
+        <el-button type="warning" plain @click="lockApp">
+          <el-icon><Lock /></el-icon> 锁定
+        </el-button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3 class="section-title">🛡️ 数据完整性</h3>
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-name">数据完整性校验</div>
+          <div class="setting-desc">检测存储数据是否损坏或被篡改</div>
+        </div>
+        <el-button type="primary" plain :loading="checkingIntegrity" @click="checkIntegrity">
+          立即检查
+        </el-button>
+      </div>
+      <div class="integrity-results" v-if="integrityResults.length > 0">
+        <div
+          class="integrity-item"
+          v-for="item in integrityResults"
+          :key="item.key"
+          :class="{ corrupted: item.status === 'corrupted', valid: item.status === 'valid' }"
+        >
+          <div class="integrity-key">{{ getDataKeyLabel(item.key) }}</div>
+          <div class="integrity-info">
+            <el-tag :type="item.status === 'valid' ? 'success' : item.status === 'corrupted' ? 'danger' : 'info'" size="small" round>
+              {{ item.status === 'valid' ? '正常' : item.status === 'corrupted' ? '损坏' : '未知' }}
+            </el-tag>
+            <span class="integrity-count">{{ item.recordCount }} 条记录</span>
+            <span class="integrity-time" v-if="item.lastChecked">
+              {{ formatDate(item.lastChecked, 'MM-DD HH:mm') }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3 class="section-title">📊 数据管理</h3>
       <div class="setting-item">
         <div class="setting-info">
@@ -45,14 +156,17 @@
       </div>
       <div class="setting-item">
         <div class="setting-info">
+          <div class="setting-name">操作日志</div>
+          <div class="setting-desc">查看所有重要操作记录</div>
+        </div>
+        <el-button type="primary" plain @click="$router.push('/logs')">查看日志</el-button>
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
           <div class="setting-name">清除所有数据</div>
           <div class="setting-desc danger">此操作不可恢复，请谨慎操作</div>
         </div>
-        <el-popconfirm title="确定要清除所有数据吗？此操作不可恢复！" @confirm="clearAllData">
-          <template #reference>
-            <el-button type="danger" plain>清除</el-button>
-          </template>
-        </el-popconfirm>
+        <el-button type="danger" plain @click="handleClearData">清除</el-button>
       </div>
     </div>
 
@@ -77,14 +191,74 @@
         </div>
       </div>
     </div>
+
+    <PasswordConfirmDialog
+      v-model="showClearConfirmDialog"
+      title="确认清除数据"
+      description="此操作将清除所有植物数据且不可恢复！请输入密码以确认操作。"
+      confirm-text="确认清除"
+      :show-warning="true"
+      @confirm="clearAllData"
+    />
+
+    <el-dialog v-model="showSetPasswordDialog" title="设置主密码" width="420px" :close-on-click-modal="false">
+      <el-form :model="passwordForm" label-position="top">
+        <el-form-item label="密码" required>
+          <el-input v-model="passwordForm.password" type="password" placeholder="请输入密码（至少6位）" show-password />
+        </el-form-item>
+        <el-form-item label="确认密码" required>
+          <el-input v-model="passwordForm.confirmPassword" type="password" placeholder="请再次输入密码" show-password />
+        </el-form-item>
+        <el-form-item label="密码提示（可选）">
+          <el-input v-model="passwordForm.hint" placeholder="帮助您记住密码的提示" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSetPasswordDialog = false">取消</el-button>
+        <el-button type="primary" @click="setPassword">确认设置</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showChangePasswordDialog" title="修改主密码" width="420px" :close-on-click-modal="false">
+      <el-form :model="changePasswordForm" label-position="top">
+        <el-form-item label="当前密码" required>
+          <el-input v-model="changePasswordForm.oldPassword" type="password" placeholder="请输入当前密码" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" required>
+          <el-input v-model="changePasswordForm.newPassword" type="password" placeholder="请输入新密码（至少6位）" show-password />
+        </el-form-item>
+        <el-form-item label="确认新密码" required>
+          <el-input v-model="changePasswordForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password />
+        </el-form-item>
+        <el-form-item label="密码提示（可选）">
+          <el-input v-model="changePasswordForm.hint" placeholder="帮助您记住密码的提示" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showChangePasswordDialog = false">取消</el-button>
+        <el-button type="primary" @click="changePassword">确认修改</el-button>
+      </template>
+    </el-dialog>
+
+    <PasswordConfirmDialog
+      v-model="showRemovePasswordDialog"
+      title="移除主密码"
+      description="移除主密码将同时禁用数据加密和自动锁定功能。确定要继续吗？"
+      confirm-text="确认移除"
+      :show-warning="true"
+      @confirm="removePassword"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
-import type { AppSettings } from '@/types'
+import type { AppSettings, DataIntegrityInfo } from '@/types'
 import { ElMessage } from 'element-plus'
+import { Lock } from '@element-plus/icons-vue'
+import PasswordConfirmDialog from '@/components/PasswordConfirmDialog.vue'
+import { formatDate } from '@/utils'
 
 const store = useAppStore()
 
@@ -95,9 +269,169 @@ const settings = reactive<AppSettings>({
   dataDir: ''
 })
 
+const encryptionEnabled = ref(false)
+const privacyMode = ref(false)
+const autoLockEnabled = ref(false)
+const autoLockMinutes = ref(5)
+const checkingIntegrity = ref(false)
+const integrityResults = ref<DataIntegrityInfo[]>([])
+
+const showSetPasswordDialog = ref(false)
+const showChangePasswordDialog = ref(false)
+const showRemovePasswordDialog = ref(false)
+const showClearConfirmDialog = ref(false)
+
+const passwordForm = reactive({
+  password: '',
+  confirmPassword: '',
+  hint: ''
+})
+
+const changePasswordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+  hint: ''
+})
+
 const saveSettings = () => {
   store.updateSettings({ ...settings })
   ElMessage.success('设置已保存')
+}
+
+const setPassword = () => {
+  if (!passwordForm.password || passwordForm.password.length < 6) {
+    ElMessage.warning('密码长度至少6位')
+    return
+  }
+  if (passwordForm.password !== passwordForm.confirmPassword) {
+    ElMessage.warning('两次输入的密码不一致')
+    return
+  }
+  store.setMasterPassword(passwordForm.password, passwordForm.hint || undefined)
+  showSetPasswordDialog.value = false
+  ElMessage.success('主密码设置成功')
+  Object.assign(passwordForm, { password: '', confirmPassword: '', hint: '' })
+  syncSecurityState()
+}
+
+const changePassword = () => {
+  if (!changePasswordForm.oldPassword) {
+    ElMessage.warning('请输入当前密码')
+    return
+  }
+  if (!changePasswordForm.newPassword || changePasswordForm.newPassword.length < 6) {
+    ElMessage.warning('新密码长度至少6位')
+    return
+  }
+  if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  const success = store.changeMasterPassword(
+    changePasswordForm.oldPassword,
+    changePasswordForm.newPassword,
+    changePasswordForm.hint || undefined
+  )
+  if (success) {
+    showChangePasswordDialog.value = false
+    ElMessage.success('密码修改成功')
+    Object.assign(changePasswordForm, { oldPassword: '', newPassword: '', confirmPassword: '', hint: '' })
+  } else {
+    ElMessage.error('当前密码错误')
+  }
+}
+
+const removePassword = () => {
+  showRemovePasswordDialog.value = false
+  store.removeMasterPassword('')
+  encryptionEnabled.value = false
+  privacyMode.value = false
+  autoLockEnabled.value = false
+  ElMessage.success('主密码已移除')
+}
+
+const toggleEncryption = (enabled: boolean) => {
+  if (enabled) {
+    if (!store.hasMasterPassword) {
+      ElMessage.warning('请先设置主密码')
+      encryptionEnabled.value = false
+      return
+    }
+    const password = prompt('请输入主密码以启用加密：')
+    if (password) {
+      const success = store.enableEncryption(password)
+      if (success) {
+        ElMessage.success('数据加密已启用')
+      } else {
+        ElMessage.error('密码错误，加密启用失败')
+        encryptionEnabled.value = false
+      }
+    } else {
+      encryptionEnabled.value = false
+    }
+  } else {
+    const password = prompt('请输入主密码以禁用加密：')
+    if (password) {
+      const success = store.disableEncryption(password)
+      if (success) {
+        ElMessage.success('数据加密已禁用')
+      } else {
+        ElMessage.error('密码错误，加密禁用失败')
+        encryptionEnabled.value = true
+      }
+    } else {
+      encryptionEnabled.value = true
+    }
+  }
+}
+
+const togglePrivacyMode = (enabled: boolean) => {
+  store.setPrivacyMode(enabled)
+  ElMessage.success(enabled ? '隐私模式已启用' : '隐私模式已关闭')
+}
+
+const toggleAutoLock = (enabled: boolean) => {
+  store.setAutoLock(enabled, autoLockMinutes.value)
+  ElMessage.success(enabled ? '自动锁定已启用' : '自动锁定已关闭')
+}
+
+const updateAutoLockMinutes = (val: number | undefined) => {
+  if (val !== undefined && autoLockEnabled.value) {
+    store.setAutoLock(true, val)
+  }
+}
+
+const lockApp = () => {
+  store.lockApp()
+  ElMessage.info('应用已锁定')
+}
+
+const checkIntegrity = () => {
+  checkingIntegrity.value = true
+  setTimeout(() => {
+    integrityResults.value = store.runIntegrityCheck()
+    checkingIntegrity.value = false
+    const corruptedCount = integrityResults.value.filter(i => i.status === 'corrupted').length
+    if (corruptedCount > 0) {
+      ElMessage.warning(`检测到 ${corruptedCount} 项数据损坏`)
+    } else {
+      ElMessage.success('数据完整性校验通过')
+    }
+  }, 500)
+}
+
+const getDataKeyLabel = (key: string): string => {
+  const map: Record<string, string> = {
+    'plant_tracker_plants': '植物数据',
+    'plant_tracker_care_records': '养护记录',
+    'plant_tracker_photos': '照片数据',
+    'plant_tracker_reminders': '提醒数据',
+    'plant_tracker_knowledge': '知识数据',
+    'plant_tracker_settings': '应用设置',
+    'plant_tracker_diary': '日记数据'
+  }
+  return map[key] || key
 }
 
 const exportData = () => {
@@ -117,6 +451,7 @@ const exportData = () => {
   a.download = `plant-tracker-backup-${new Date().toISOString().split('T')[0]}.json`
   a.click()
   URL.revokeObjectURL(url)
+  store.exportData()
   ElMessage.success('数据已导出')
 }
 
@@ -146,6 +481,7 @@ const importData = (file: any) => {
         store.$patch({ knowledgeArticles: data.knowledgeArticles })
         localStorage.setItem('plant_tracker_knowledge', JSON.stringify(data.knowledgeArticles))
       }
+      store.importData()
       ElMessage.success('数据导入成功')
     } catch {
       ElMessage.error('导入失败，文件格式不正确')
@@ -154,20 +490,29 @@ const importData = (file: any) => {
   reader.readAsText(file.raw)
 }
 
+const handleClearData = () => {
+  if (store.hasMasterPassword) {
+    showClearConfirmDialog.value = true
+  } else {
+    clearAllData()
+  }
+}
+
 const clearAllData = () => {
-  localStorage.clear()
-  store.$patch({
-    plants: [],
-    careRecords: [],
-    photos: [],
-    reminders: [],
-    knowledgeArticles: []
-  })
+  store.clearAllData()
   ElMessage.success('数据已清除')
+}
+
+const syncSecurityState = () => {
+  encryptionEnabled.value = store.isEncryptionEnabled
+  privacyMode.value = store.isPrivacyModeEnabled
+  autoLockEnabled.value = store.isAutoLockEnabled
+  autoLockMinutes.value = store.autoLockMinutes
 }
 
 onMounted(() => {
   Object.assign(settings, store.settings)
+  syncSecurityState()
 })
 </script>
 
@@ -210,6 +555,8 @@ onMounted(() => {
     border-bottom: 1px solid $cream;
     &:last-child { border-bottom: none; }
     .setting-info {
+      flex: 1;
+      margin-right: 16px;
       .setting-name {
         font-weight: 500;
         color: $brown-dark;
@@ -219,6 +566,63 @@ onMounted(() => {
         font-size: 13px;
         color: $brown-light;
         &.danger { color: #E74C3C; }
+      }
+    }
+    .setting-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .auto-lock-controls {
+      display: flex;
+      align-items: center;
+      .auto-lock-unit {
+        font-size: 13px;
+        color: $brown-light;
+        margin-left: 8px;
+      }
+    }
+  }
+
+  .integrity-results {
+    margin-top: 16px;
+    padding: 16px;
+    background: $cream;
+    border-radius: 12px;
+
+    .integrity-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid $cream-dark;
+
+      &:last-child { border-bottom: none; }
+
+      &.corrupted {
+        .integrity-key { color: #E74C3C; }
+      }
+
+      .integrity-key {
+        font-weight: 500;
+        color: $brown-dark;
+        font-size: 14px;
+      }
+
+      .integrity-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        .integrity-count {
+          font-size: 13px;
+          color: $brown-light;
+        }
+
+        .integrity-time {
+          font-size: 12px;
+          color: $brown-light;
+          font-family: 'Courier New', monospace;
+        }
       }
     }
   }

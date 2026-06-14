@@ -51,13 +51,9 @@
           <el-button size="small" circle @click="editPlant(plant)">
             <el-icon><Edit /></el-icon>
           </el-button>
-          <el-popconfirm title="确定删除这棵植物吗？" @confirm="deletePlant(plant.id)">
-            <template #reference>
-              <el-button size="small" circle type="danger">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </template>
-          </el-popconfirm>
+          <el-button size="small" circle type="danger" @click="handleDeletePlant(plant)">
+            <el-icon><Delete /></el-icon>
+          </el-button>
         </div>
       </div>
     </div>
@@ -163,6 +159,15 @@
         <el-button type="primary" @click="submitPlant">{{ editingPlant ? '保存' : '添加' }}</el-button>
       </template>
     </el-dialog>
+
+    <PasswordConfirmDialog
+      v-model="showDeleteConfirm"
+      title="确认删除植物"
+      description="此操作将永久删除该植物及其所有相关数据，且无法恢复。"
+      confirm-text="确认删除"
+      :show-warning="true"
+      @confirm="confirmDeletePlant"
+    />
   </div>
 </template>
 
@@ -172,7 +177,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { getPlantEmoji, statusLabel, getStatusColor, sunlightLabel, compressImage } from '@/utils'
 import type { Plant } from '@/types'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import PasswordConfirmDialog from '@/components/PasswordConfirmDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -182,6 +188,8 @@ const searchText = ref('')
 const filterStatus = ref('')
 const showAddDialog = ref(false)
 const editingPlant = ref<Plant | null>(null)
+const showDeleteConfirm = ref(false)
+const deletingPlantId = ref('')
 
 const commonTags = ['室内', '阳台', '净化空气', '多肉', '观花', '观叶', '香草', '食用', '耐旱', '喜水', '新手友好']
 
@@ -243,6 +251,27 @@ const editPlant = (plant: Plant) => {
 const deletePlant = (id: string) => {
   store.deletePlant(id)
   ElMessage.success('已删除')
+}
+
+const handleDeletePlant = (plant: Plant) => {
+  ElMessageBox.confirm(
+    `确定删除植物「${plant.name}」吗？删除后将无法恢复。`,
+    '确认删除',
+    { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+  ).then(() => {
+    if (store.hasMasterPassword) {
+      deletingPlantId.value = plant.id
+      showDeleteConfirm.value = true
+    } else {
+      deletePlant(plant.id)
+    }
+  }).catch(() => {})
+}
+
+const confirmDeletePlant = () => {
+  deletePlant(deletingPlantId.value)
+  showDeleteConfirm.value = false
+  deletingPlantId.value = ''
 }
 
 const cancelForm = () => {

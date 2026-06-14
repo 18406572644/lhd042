@@ -1,20 +1,54 @@
 import { ref } from 'vue'
-import type { Plant, CareRecord, PhotoRecord, Reminder, KnowledgeArticle, AppSettings, DiaryEntry, DiaryPassword } from '@/types'
+import type {
+  Plant,
+  CareRecord,
+  PhotoRecord,
+  Reminder,
+  KnowledgeArticle,
+  AppSettings,
+  DiaryEntry,
+  DiaryPassword,
+  SecuritySettings,
+  OperationLog,
+  DataIntegrityInfo,
+  EncryptedData
+} from '@/types'
 import { generateId } from '@/utils'
+import {
+  encryptData,
+  decryptData,
+  generateChecksum,
+  verifyChecksum,
+  isEncryptedData
+} from '@/utils/encryption'
 
-const PLANTS_KEY = 'plant_tracker_plants'
-const CARE_KEY = 'plant_tracker_care_records'
-const PHOTOS_KEY = 'plant_tracker_photos'
-const REMINDERS_KEY = 'plant_tracker_reminders'
-const KNOWLEDGE_KEY = 'plant_tracker_knowledge'
-const SETTINGS_KEY = 'plant_tracker_settings'
-const DIARY_KEY = 'plant_tracker_diary'
-const DIARY_PASSWORD_KEY = 'plant_tracker_diary_password'
+export const PLANTS_KEY = 'plant_tracker_plants'
+export const CARE_KEY = 'plant_tracker_care_records'
+export const PHOTOS_KEY = 'plant_tracker_photos'
+export const REMINDERS_KEY = 'plant_tracker_reminders'
+export const KNOWLEDGE_KEY = 'plant_tracker_knowledge'
+export const SETTINGS_KEY = 'plant_tracker_settings'
+export const DIARY_KEY = 'plant_tracker_diary'
+export const DIARY_PASSWORD_KEY = 'plant_tracker_diary_password'
+export const SECURITY_KEY = 'plant_tracker_security'
+export const LOGS_KEY = 'plant_tracker_logs'
+export const CHECKSUMS_KEY = 'plant_tracker_checksums'
+
+export const DATA_KEYS = [
+  PLANTS_KEY,
+  CARE_KEY,
+  PHOTOS_KEY,
+  REMINDERS_KEY,
+  KNOWLEDGE_KEY,
+  SETTINGS_KEY,
+  DIARY_KEY
+] as const
 
 export const getFromStorage = <T>(key: string, defaultValue: T): T => {
   try {
     const data = localStorage.getItem(key)
-    return data ? JSON.parse(data) : defaultValue
+    if (!data) return defaultValue
+    return JSON.parse(data)
   } catch {
     return defaultValue
   }
@@ -22,6 +56,180 @@ export const getFromStorage = <T>(key: string, defaultValue: T): T => {
 
 export const setToStorage = <T>(key: string, value: T): void => {
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+export const getEncryptedFromStorage = <T>(key: string, password: string, defaultValue: T): T => {
+  try {
+    const data = localStorage.getItem(key)
+    if (!data) return defaultValue
+    const parsed = JSON.parse(data)
+    if (isEncryptedData(parsed)) {
+      const decrypted = decryptData<T>(parsed, password)
+      return decrypted ?? defaultValue
+    }
+    return parsed as T
+  } catch {
+    return defaultValue
+  }
+}
+
+export const setEncryptedToStorage = <T>(key: string, value: T, password: string): void => {
+  const encrypted = encryptData(value, password)
+  localStorage.setItem(key, JSON.stringify(encrypted))
+}
+
+export const getSecuritySettings = (): SecuritySettings | null => {
+  return getFromStorage<SecuritySettings | null>(SECURITY_KEY, null)
+}
+
+export const setSecuritySettings = (settings: SecuritySettings): void => {
+  setToStorage(SECURITY_KEY, settings)
+}
+
+export const removeSecuritySettings = (): void => {
+  localStorage.removeItem(SECURITY_KEY)
+}
+
+export const getOperationLogs = (): OperationLog[] => {
+  return getFromStorage<OperationLog[]>(LOGS_KEY, [])
+}
+
+export const setOperationLogs = (logs: OperationLog[]): void => {
+  setToStorage(LOGS_KEY, logs)
+}
+
+export const addOperationLog = (log: Omit<OperationLog, 'id' | 'timestamp' | 'ip' | 'userAgent'>): void => {
+  const logs = getOperationLogs()
+  const newLog: OperationLog = {
+    ...log,
+    id: generateId(),
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent
+  }
+  logs.unshift(newLog)
+  if (logs.length > 1000) {
+    logs.pop()
+  }
+  setOperationLogs(logs)
+}
+
+export const getChecksums = (): Record<string, DataIntegrityInfo> => {
+  return getFromStorage<Record<string, DataIntegrityInfo>>(CHECKSUMS_KEY, {})
+}
+
+export const setChecksums = (checksums: Record<string, DataIntegrityInfo>): void => {
+  setToStorage(CHECKSUMS_KEY, checksums)
+}
+
+export const generateDataChecksum = (key: string): DataIntegrityInfo | null => {
+  const data = localStorage.getItem(key)
+  if (!data) return null
+  try {
+    const parsed = JSON.parse(data)
+    const checksum = generateChecksum(parsed)
+    let recordCount = 0
+    if (Array.isArray(parsed)) {
+      recordCount = parsed.length
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      recordCount = 1
+    }
+    return {
+      key,
+      checksum,
+      lastChecked: new Date().toISOString(),
+      status: 'unknown',
+      recordCount
+    }
+  } catch {
+    return null
+  }
+}
+
+export const verifyDataChecksum = (key: string): DataIntegrityInfo => {
+  const checksums = getChecksums()
+  const storedInfo = checksums[key]
+  const currentInfo = generateDataChecksum(key)
+
+  if (!currentInfo) {
+    return {
+      key,
+      checksum: '',
+      lastChecked: new Date().toISOString(),
+      status: 'unknown',
+      recordCount: 0
+    }
+  }
+
+  if (!storedInfo) {
+    checksums[key] = { ...currentInfo, status: 'valid' }
+    setChecksums(checksums)
+    return { ...currentInfo, status: 'valid' }
+  }
+
+  const isValid = verifyChecksum(
+    JSON.parse(localStorage.getItem(key) || 'null'),
+    storedInfo.checksum
+  )
+
+  const result: DataIntegrityInfo = {
+    ...currentInfo,
+    status: isValid ? 'valid' : 'corrupted'
+  }
+
+  checksums[key] = result
+  setChecksums(checksums)
+
+  return result
+}
+
+export const verifyAllDataChecksums = (): DataIntegrityInfo[] => {
+  return DATA_KEYS.map(key => verifyDataChecksum(key))
+}
+
+export const updateDataChecksum = (key: string): void => {
+  const checksums = getChecksums()
+  const info = generateDataChecksum(key)
+  if (info) {
+    checksums[key] = { ...info, status: 'valid' }
+    setChecksums(checksums)
+  }
+}
+
+export const isDataEncrypted = (key: string): boolean => {
+  const data = localStorage.getItem(key)
+  if (!data) return false
+  try {
+    const parsed = JSON.parse(data)
+    return isEncryptedData(parsed)
+  } catch {
+    return false
+  }
+}
+
+export const encryptAllData = (password: string): void => {
+  DATA_KEYS.forEach(key => {
+    const data = getFromStorage<any>(key, null)
+    if (data !== null && !isDataEncrypted(key)) {
+      setEncryptedToStorage(key, data, password)
+      updateDataChecksum(key)
+    }
+  })
+}
+
+export const decryptAllData = (password: string): boolean => {
+  let success = true
+  DATA_KEYS.forEach(key => {
+    if (isDataEncrypted(key)) {
+      const data = getEncryptedFromStorage<any>(key, password, null)
+      if (data !== null) {
+        setToStorage(key, data)
+        updateDataChecksum(key)
+      } else {
+        success = false
+      }
+    }
+  })
+  return success
 }
 
 export const plants = ref<Plant[]>(getFromStorage<Plant[]>(PLANTS_KEY, []))
