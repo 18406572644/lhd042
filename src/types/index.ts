@@ -264,100 +264,39 @@ export interface CareStats {
   averageResponseTime: number
 }
 
-export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+export type StatusChangeReason = 'overdue_watering' | 'consecutive_healthy' | 'pest_detected' | 'manual'
 
-export interface SeasonalCareData {
-  season: Season
-  seasonLabel: string
-  waterCount: number
-  fertilizeCount: number
-  pruneCount: number
-  repotCount: number
-  averageWaterInterval: number
-  averageFertilizeInterval: number
-  plantHealthCount: {
-    healthy: number
-    needsCare: number
-    sick: number
-    dormant: number
-  }
-  suggestions: string[]
-}
-
-export interface HealthDimension {
-  name: string
-  label: string
-  value: number
-  maxValue: number
-  description: string
-}
-
-export interface PlantHealthAnalysis {
-  plantId: string
-  plantName: string
-  overallScore: number
-  dimensions: HealthDimension[]
-  lastUpdated: string
-}
-
-export interface CareFrequencyPoint {
-  date: string
-  waterCount: number
-  fertilizeCount: number
-  rollingWaterInterval: number
-  rollingFertilizeInterval: number
-}
-
-export interface PlantCareFrequency {
-  plantId: string
-  plantName: string
-  data: CareFrequencyPoint[]
-}
-
-export interface GrowthDataPoint {
-  date: string
-  height: number | null
-  leafCount: number | null
-  growthRate: number | null
-}
-
-export interface PlantGrowthData {
-  plantId: string
-  plantName: string
-  data: GrowthDataPoint[]
-  totalGrowth: number
-  averageGrowthRate: number
-}
-
-export interface ReportMetric {
-  key: string
-  label: string
-  enabled: boolean
-  description: string
-}
-
-export interface CustomReportConfig {
-  title: string
-  plantIds: string[]
-  metrics: ReportMetric[]
-  dateRange: {
-    start: string
-    end: string
-  }
-  includeCharts: boolean
-  includeRawData: boolean
-}
-
-export interface ReportSection {
-  title: string
-  type: 'text' | 'chart' | 'table'
-  content: any
-}
-
-export interface CustomReport {
+export interface StatusChangeRecord {
   id: string
-  title: string
+  plantId: string
+  plantName: string
+  oldStatus: Plant['status']
+  newStatus: Plant['status']
+  reason: StatusChangeReason
+  reasonText: string
+  autoDetected: boolean
+  accepted: boolean
   createdAt: string
-  sections: ReportSection[]
-  config: CustomReportConfig
+}
+
+export interface PlantHealthScore {
+  plantId: string
+  plantName: string
+  score: number
+  careFrequencyScore: number
+  statusStabilityScore: number
+  wateringConsistencyScore: number
+  fertilizingConsistencyScore: number
+  careActivityScore: number
+  lastCalculated: string
+}
+
+export interface UpcomingCareItem {
+  plantId: string
+  plantName: string
+  plantSpecies: string
+  careType: 'water' | 'fertilize'
+  dueDate: string
+  daysUntilDue: number
+  urgency: 'overdue' | 'today' | 'soon' | 'upcoming'
 }

@@ -37,6 +37,8 @@ export const ACHIEVEMENTS_KEY = 'plant_tracker_achievements'
 export const SUGGESTIONS_KEY = 'plant_tracker_suggestions'
 export const WARNINGS_KEY = 'plant_tracker_warnings'
 export const CARE_SCORE_KEY = 'plant_tracker_care_score'
+export const STATUS_HISTORY_KEY = 'plant_tracker_status_history'
+export const HEALTH_SCORES_KEY = 'plant_tracker_health_scores'
 
 export const DATA_KEYS = [
   PLANTS_KEY,
@@ -49,7 +51,9 @@ export const DATA_KEYS = [
   ACHIEVEMENTS_KEY,
   SUGGESTIONS_KEY,
   WARNINGS_KEY,
-  CARE_SCORE_KEY
+  CARE_SCORE_KEY,
+  STATUS_HISTORY_KEY,
+  HEALTH_SCORES_KEY
 ] as const
 
 export const getFromStorage = <T>(key: string, defaultValue: T): T => {

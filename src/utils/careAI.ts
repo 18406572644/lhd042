@@ -10,7 +10,11 @@ import type {
   WarningAlert,
   CareScore,
   WateringAnalysis,
-  CareStats
+  CareStats,
+  StatusChangeRecord,
+  StatusChangeReason,
+  PlantHealthScore,
+  UpcomingCareItem
 } from '@/types'
 import { generateId, daysBetween, daysAgo } from '@/utils'
 
@@ -735,4 +739,322 @@ export const getWarningTypeIcon = (type: string): string => {
     care_mistake: '💡'
   }
   return map[type] || '⚠️'
+}
+
+export interface StatusEvaluationResult {
+  plantId: string
+  plantName: string
+  currentStatus: Plant['status']
+  suggestedStatus: Plant['status']
+  reason: StatusChangeReason
+  reasonText: string
+}
+
+export const evaluatePlantStatus = (
+  plant: Plant,
+  careRecords: CareRecord[]
+): StatusEvaluationResult | null => {
+  const plantRecords = careRecords
+    .filter(r => r.plantId === plant.id)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const waterRecords = plantRecords
+    .filter(r => r.type === 'water')
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  if (waterRecords.length > 0) {
+    const lastWaterDate = new Date(waterRecords[0].date)
+    const daysSinceLastWater = Math.floor((Date.now() - lastWaterDate.getTime()) / (1000 * 60 * 60 * 24))
+    const overdueThreshold = plant.wateringInterval + 3
+
+    if (daysSinceLastWater > overdueThreshold && plant.status !== 'needsCare' && plant.status !== 'sick') {
+      return {
+        plantId: plant.id,
+        plantName: plant.name,
+        currentStatus: plant.status,
+        suggestedStatus: 'needsCare',
+        reason: 'overdue_watering',
+        reasonText: `已超过浇水间隔${plant.wateringInterval}天+3天未浇水（已${daysSinceLastWater}天），建议标记为"需要照料"`
+      }
+    }
+  }
+
+  const recentRecords = plantRecords.slice(0, 2)
+  if (recentRecords.length >= 2) {
+    const bothHealthy = recentRecords.every(
+      r => r.note && r.note.includes('生长良好')
+    )
+    if (bothHealthy && plant.status !== 'healthy') {
+      return {
+        plantId: plant.id,
+        plantName: plant.name,
+        currentStatus: plant.status,
+        suggestedStatus: 'healthy',
+        reason: 'consecutive_healthy',
+        reasonText: '连续两次养护记录备注"生长良好"，建议标记为"健康"'
+      }
+    }
+  }
+
+  const pestRecord = plantRecords.find(
+    r => r.note && (r.note.includes('病虫害') || r.note.includes('虫害') || r.note.includes('病害'))
+  )
+  if (pestRecord && plant.status !== 'sick') {
+    const daysSincePestReport = daysAgo(pestRecord.date)
+    if (daysSincePestReport <= 30) {
+      return {
+        plantId: plant.id,
+        plantName: plant.name,
+        currentStatus: plant.status,
+        suggestedStatus: 'sick',
+        reason: 'pest_detected',
+        reasonText: `养护记录中标记了"病虫害"（${pestRecord.date.split('T')[0]}），建议标记为"状态不佳"`
+      }
+    }
+  }
+
+  return null
+}
+
+export const evaluateAllPlantsStatus = (
+  plants: Plant[],
+  careRecords: CareRecord[]
+): StatusEvaluationResult[] => {
+  return plants
+    .map(plant => evaluatePlantStatus(plant, careRecords))
+    .filter((r): r is StatusEvaluationResult => r !== null)
+}
+
+export const calculatePlantHealthScore = (
+  plant: Plant,
+  careRecords: CareRecord[],
+  statusHistory: StatusChangeRecord[],
+  wateringAnalysis?: WateringAnalysis
+): PlantHealthScore => {
+  const plantRecords = careRecords.filter(r => r.plantId === plant.id)
+  const waterRecords = plantRecords
+    .filter(r => r.type === 'water')
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  const waterDates = waterRecords.map(r => r.date)
+  const waterIntervals: number[] = []
+  for (let i = 1; i < waterDates.length; i++) {
+    waterIntervals.push(daysBetween(waterDates[i - 1], waterDates[i]))
+  }
+
+  const lastWaterDate = waterRecords.length > 0 ? waterRecords[waterRecords.length - 1].date : plant.acquiredDate
+  const daysSinceLastWater = daysAgo(lastWaterDate)
+  let careFrequencyScore = 0
+  if (plant.wateringInterval > 0) {
+    const expectedWaterings = Math.floor(daysAgo(plant.acquiredDate) / plant.wateringInterval)
+    if (expectedWaterings > 0) {
+      careFrequencyScore = Math.min(100, Math.round((waterRecords.length / expectedWaterings) * 100))
+    } else {
+      careFrequencyScore = 50
+    }
+  } else {
+    careFrequencyScore = 50
+  }
+
+  const plantStatusChanges = statusHistory.filter(h => h.plantId === plant.id)
+  const sickChanges = plantStatusChanges.filter(h => h.newStatus === 'sick').length
+  const needsCareChanges = plantStatusChanges.filter(h => h.newStatus === 'needsCare').length
+  const totalChanges = plantStatusChanges.length
+  let statusStabilityScore = 100
+  if (totalChanges > 0) {
+    const penalty = sickChanges * 20 + needsCareChanges * 10
+    statusStabilityScore = Math.max(0, 100 - penalty)
+  }
+  const statusScores: Record<string, number> = { healthy: 100, needsCare: 60, sick: 30, dormant: 50 }
+  statusStabilityScore = Math.round((statusStabilityScore + (statusScores[plant.status] || 50)) / 2)
+
+  let wateringConsistencyScore = 0
+  if (wateringAnalysis) {
+    wateringConsistencyScore = wateringAnalysis.consistency
+  } else if (waterIntervals.length > 0 && plant.wateringInterval > 0) {
+    const deviations = waterIntervals.map(i => Math.abs(i - plant.wateringInterval))
+    const avgDeviation = deviations.reduce((a, b) => a + b, 0) / deviations.length
+    wateringConsistencyScore = Math.max(0, Math.min(100, Math.round(100 - (avgDeviation / (plant.wateringInterval * 0.5)) * 100)))
+  } else {
+    wateringConsistencyScore = daysSinceLastWater <= plant.wateringInterval ? 80 : 40
+  }
+
+  const fertilizeRecords = plantRecords
+    .filter(r => r.type === 'fertilize')
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const fertilizeDates = fertilizeRecords.map(r => r.date)
+  const fertilizeIntervals: number[] = []
+  for (let i = 1; i < fertilizeDates.length; i++) {
+    fertilizeIntervals.push(daysBetween(fertilizeDates[i - 1], fertilizeDates[i]))
+  }
+  let fertilizingConsistencyScore = 50
+  if (fertilizeIntervals.length > 0 && plant.fertilizingInterval > 0) {
+    const deviations = fertilizeIntervals.map(i => Math.abs(i - plant.fertilizingInterval))
+    const avgDeviation = deviations.reduce((a, b) => a + b, 0) / deviations.length
+    fertilizingConsistencyScore = Math.max(0, Math.min(100, Math.round(100 - (avgDeviation / (plant.fertilizingInterval * 0.5)) * 100)))
+  } else if (fertilizeRecords.length > 0) {
+    const lastFertilizeDate = fertilizeRecords[fertilizeRecords.length - 1].date
+    const daysSinceLastFertilize = daysAgo(lastFertilizeDate)
+    fertilizingConsistencyScore = daysSinceLastFertilize <= plant.fertilizingInterval ? 70 : 40
+  }
+
+  const totalDays = daysAgo(plant.acquiredDate)
+  const recordDensity = totalDays > 0 ? (plantRecords.length / totalDays) * 7 : 0
+  let careActivityScore = Math.min(100, Math.round(recordDensity * 20))
+  if (daysSinceLastWater <= plant.wateringInterval) careActivityScore = Math.min(100, careActivityScore + 10)
+
+  const score = Math.round(
+    careFrequencyScore * 0.25 +
+    statusStabilityScore * 0.25 +
+    wateringConsistencyScore * 0.2 +
+    fertilizingConsistencyScore * 0.1 +
+    careActivityScore * 0.2
+  )
+
+  return {
+    plantId: plant.id,
+    plantName: plant.name,
+    score: Math.max(0, Math.min(100, score)),
+    careFrequencyScore,
+    statusStabilityScore,
+    wateringConsistencyScore,
+    fertilizingConsistencyScore,
+    careActivityScore,
+    lastCalculated: new Date().toISOString()
+  }
+}
+
+export const calculateAllHealthScores = (
+  plants: Plant[],
+  careRecords: CareRecord[],
+  statusHistory: StatusChangeRecord[],
+  wateringAnalyses: WateringAnalysis[]
+): PlantHealthScore[] => {
+  return plants.map(plant => {
+    const analysis = wateringAnalyses.find(a => a.plantId === plant.id)
+    return calculatePlantHealthScore(plant, careRecords, statusHistory, analysis)
+  })
+}
+
+export const getUpcomingCareItems = (
+  plants: Plant[],
+  careRecords: CareRecord[]
+): UpcomingCareItem[] => {
+  const items: UpcomingCareItem[] = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  plants.forEach(plant => {
+    const plantRecords = careRecords.filter(r => r.plantId === plant.id)
+
+    const waterRecords = plantRecords
+      .filter(r => r.type === 'water')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    if (waterRecords.length > 0 || plant.wateringInterval > 0) {
+      const lastWaterDate = waterRecords.length > 0
+        ? new Date(waterRecords[0].date)
+        : new Date(plant.acquiredDate)
+      const nextWaterDate = new Date(lastWaterDate)
+      nextWaterDate.setDate(nextWaterDate.getDate() + plant.wateringInterval)
+
+      const daysUntilDue = Math.ceil((nextWaterDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+      let urgency: UpcomingCareItem['urgency'] = 'upcoming'
+      if (daysUntilDue < 0) urgency = 'overdue'
+      else if (daysUntilDue === 0) urgency = 'today'
+      else if (daysUntilDue <= 2) urgency = 'soon'
+
+      if (daysUntilDue <= 3) {
+        items.push({
+          plantId: plant.id,
+          plantName: plant.name,
+          plantSpecies: plant.species,
+          careType: 'water',
+          dueDate: nextWaterDate.toISOString().split('T')[0],
+          daysUntilDue,
+          urgency
+        })
+      }
+    }
+
+    const fertilizeRecords = plantRecords
+      .filter(r => r.type === 'fertilize')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    if (fertilizeRecords.length > 0 || plant.fertilizingInterval > 0) {
+      const lastFertilizeDate = fertilizeRecords.length > 0
+        ? new Date(fertilizeRecords[0].date)
+        : new Date(plant.acquiredDate)
+      const nextFertilizeDate = new Date(lastFertilizeDate)
+      nextFertilizeDate.setDate(nextFertilizeDate.getDate() + plant.fertilizingInterval)
+
+      const daysUntilDue = Math.ceil((nextFertilizeDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+      let urgency: UpcomingCareItem['urgency'] = 'upcoming'
+      if (daysUntilDue < 0) urgency = 'overdue'
+      else if (daysUntilDue === 0) urgency = 'today'
+      else if (daysUntilDue <= 3) urgency = 'soon'
+
+      if (daysUntilDue <= 3) {
+        items.push({
+          plantId: plant.id,
+          plantName: plant.name,
+          plantSpecies: plant.species,
+          careType: 'fertilize',
+          dueDate: nextFertilizeDate.toISOString().split('T')[0],
+          daysUntilDue,
+          urgency
+        })
+      }
+    }
+  })
+
+  return items.sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+}
+
+export const getStatusChangeReasonLabel = (reason: StatusChangeReason): string => {
+  const map: Record<StatusChangeReason, string> = {
+    overdue_watering: '超期未浇水',
+    consecutive_healthy: '连续生长良好',
+    pest_detected: '检测到病虫害',
+    manual: '手动变更'
+  }
+  return map[reason] || reason
+}
+
+export const getStatusChangeReasonIcon = (reason: StatusChangeReason): string => {
+  const map: Record<StatusChangeReason, string> = {
+    overdue_watering: '💧',
+    consecutive_healthy: '🌿',
+    pest_detected: '🐛',
+    manual: '✏️'
+  }
+  return map[reason] || '📝'
+}
+
+export const getUrgencyColor = (urgency: UpcomingCareItem['urgency']): string => {
+  const map: Record<string, string> = {
+    overdue: '#E74C3C',
+    today: '#F39C12',
+    soon: '#3498DB',
+    upcoming: '#95A5A6'
+  }
+  return map[urgency] || '#95A5A6'
+}
+
+export const getUrgencyLabel = (urgency: UpcomingCareItem['urgency']): string => {
+  const map: Record<string, string> = {
+    overdue: '已逾期',
+    today: '今天',
+    soon: '即将到期',
+    upcoming: '计划中'
+  }
+  return map[urgency] || urgency
+}
+
+export const getHealthScoreLevel = (score: number): { label: string; color: string; icon: string } => {
+  if (score >= 90) return { label: '非常健康', color: '#27AE60', icon: '🌟' }
+  if (score >= 75) return { label: '健康', color: '#6B8E5A', icon: '🌿' }
+  if (score >= 60) return { label: '一般', color: '#F39C12', icon: '🌱' }
+  if (score >= 40) return { label: '需要关注', color: '#E67E22', icon: '⚠️' }
+  return { label: '状态不佳', color: '#E74C3C', icon: '🔴' }
 }

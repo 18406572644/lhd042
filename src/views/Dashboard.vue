@@ -101,6 +101,60 @@
       </div>
     </div>
 
+    <div class="status-alert-section" v-if="store.pendingStatusChanges.length > 0">
+      <div class="section-header">
+        <h3>🔔 状态变更提醒</h3>
+      </div>
+      <div class="status-alert-list">
+        <div
+          v-for="change in store.pendingStatusChanges"
+          :key="change.plantId"
+          class="status-alert-card"
+        >
+          <div class="alert-icon">{{ getReasonIcon(change.reason) }}</div>
+          <div class="alert-content">
+            <div class="alert-plant">{{ change.plantName }}</div>
+            <div class="alert-change">
+              <el-tag size="small" :color="getStatusColor(change.currentStatus)" effect="dark" round>{{ statusLabel(change.currentStatus) }}</el-tag>
+              <span class="alert-arrow">→</span>
+              <el-tag size="small" :color="getStatusColor(change.suggestedStatus)" effect="dark" round>{{ statusLabel(change.suggestedStatus) }}</el-tag>
+            </div>
+            <div class="alert-reason">{{ change.reasonText }}</div>
+          </div>
+          <div class="alert-actions">
+            <el-button size="small" type="primary" @click="acceptChange(change.plantId)">接受</el-button>
+            <el-button size="small" @click="rejectChange(change.plantId)">忽略</el-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="upcoming-care-section" v-if="upcomingCareItems.length > 0">
+      <div class="section-header">
+        <h3>⏰ 养护预警</h3>
+      </div>
+      <div class="upcoming-care-list">
+        <div
+          v-for="item in upcomingCareItems.slice(0, 6)"
+          :key="item.plantId + item.careType"
+          class="upcoming-care-item"
+          @click="goToPlant(item.plantId)"
+        >
+          <div class="care-urgency-dot" :style="{ background: getUrgencyColor(item.urgency) }"></div>
+          <div class="care-item-icon">{{ item.careType === 'water' ? '💧' : '🧪' }}</div>
+          <div class="care-item-content">
+            <div class="care-item-name">{{ item.plantName }}</div>
+            <div class="care-item-species">{{ item.plantSpecies }} · {{ item.careType === 'water' ? '浇水' : '施肥' }}</div>
+          </div>
+          <div class="care-item-due" :style="{ color: getUrgencyColor(item.urgency) }">
+            <span v-if="item.urgency === 'overdue'">逾期{{ Math.abs(item.daysUntilDue) }}天</span>
+            <span v-else-if="item.urgency === 'today'">今天</span>
+            <span v-else>{{ item.daysUntilDue }}天后</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="achievement-preview">
       <div class="section-header">
         <h3>🏆 我的成就</h3>
@@ -260,7 +314,9 @@ import {
   getWarningTypeIcon,
   getRarityColor,
   getRarityName,
-  getLevelName
+  getLevelName,
+  getUrgencyColor,
+  getStatusChangeReasonIcon
 } from '@/utils/careAI'
 
 const router = useRouter()
@@ -297,6 +353,18 @@ const latestAchievements = computed(() => {
     })
     .slice(0, 3)
 })
+
+const upcomingCareItems = computed(() => store.upcomingCareItems)
+
+const getReasonIcon = (reason: string) => getStatusChangeReasonIcon(reason as any)
+
+const acceptChange = (plantId: string) => {
+  store.acceptStatusChange(plantId)
+}
+
+const rejectChange = (plantId: string) => {
+  store.rejectStatusChange(plantId)
+}
 
 const getPlantName = (plantId: string) => {
   const plant = store.plants.find(p => p.id === plantId)
@@ -682,6 +750,157 @@ const getLevelIcon = (level: string): string => {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+      }
+    }
+  }
+
+  .status-alert-section {
+    margin-bottom: 24px;
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      h3 { font-size: 16px; color: $brown-dark; }
+    }
+
+    .status-alert-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .status-alert-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: $cream-light;
+      border-radius: 14px;
+      border-left: 4px solid #F39C12;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: all 0.2s;
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      .alert-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: #F39C1222;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        flex-shrink: 0;
+      }
+
+      .alert-content {
+        flex: 1;
+        min-width: 0;
+
+        .alert-plant {
+          font-weight: 600;
+          color: $brown-dark;
+          font-size: 15px;
+          margin-bottom: 6px;
+        }
+
+        .alert-change {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+
+          .alert-arrow {
+            color: $brown-light;
+            font-size: 16px;
+          }
+        }
+
+        .alert-reason {
+          font-size: 13px;
+          color: $brown-light;
+          line-height: 1.5;
+        }
+      }
+
+      .alert-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+    }
+  }
+
+  .upcoming-care-section {
+    margin-bottom: 24px;
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      h3 { font-size: 16px; color: $brown-dark; }
+    }
+
+    .upcoming-care-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .upcoming-care-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      background: $cream-light;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+
+      .care-urgency-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .care-item-icon {
+        font-size: 22px;
+        flex-shrink: 0;
+      }
+
+      .care-item-content {
+        flex: 1;
+        min-width: 0;
+
+        .care-item-name {
+          font-weight: 500;
+          color: $brown-dark;
+          font-size: 14px;
+        }
+
+        .care-item-species {
+          font-size: 12px;
+          color: $brown-light;
+        }
+      }
+
+      .care-item-due {
+        font-weight: 600;
+        font-size: 13px;
+        flex-shrink: 0;
       }
     }
   }

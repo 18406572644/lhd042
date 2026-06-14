@@ -124,6 +124,98 @@
           <el-icon><Plus /></el-icon> 添加提醒
         </el-button>
       </el-tab-pane>
+
+      <el-tab-pane label="健康评分" name="health">
+        <div v-if="healthScore" class="health-score-section">
+          <div class="score-overview">
+            <div class="score-ring" :style="{ '--score-color': getHealthLevel(healthScore.score).color }">
+              <div class="score-value">{{ healthScore.score }}</div>
+              <div class="score-label">健康评分</div>
+            </div>
+            <div class="score-level-info">
+              <span class="level-icon">{{ getHealthLevel(healthScore.score).icon }}</span>
+              <span class="level-text" :style="{ color: getHealthLevel(healthScore.score).color }">{{ getHealthLevel(healthScore.score).label }}</span>
+            </div>
+          </div>
+          <div class="score-dimensions">
+            <div class="dimension-item">
+              <div class="dimension-header">
+                <span class="dimension-name">养护频率</span>
+                <span class="dimension-value">{{ healthScore.careFrequencyScore }}</span>
+              </div>
+              <el-progress :percentage="healthScore.careFrequencyScore" :color="'#6B8E5A'" :stroke-width="8" :show-text="false" />
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-header">
+                <span class="dimension-name">状态稳定性</span>
+                <span class="dimension-value">{{ healthScore.statusStabilityScore }}</span>
+              </div>
+              <el-progress :percentage="healthScore.statusStabilityScore" :color="'#7CB342'" :stroke-width="8" :show-text="false" />
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-header">
+                <span class="dimension-name">浇水规律</span>
+                <span class="dimension-value">{{ healthScore.wateringConsistencyScore }}</span>
+              </div>
+              <el-progress :percentage="healthScore.wateringConsistencyScore" :color="'#5B9BD5'" :stroke-width="8" :show-text="false" />
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-header">
+                <span class="dimension-name">施肥规律</span>
+                <span class="dimension-value">{{ healthScore.fertilizingConsistencyScore }}</span>
+              </div>
+              <el-progress :percentage="healthScore.fertilizingConsistencyScore" :color="'#8FA978'" :stroke-width="8" :show-text="false" />
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-header">
+                <span class="dimension-name">养护活跃度</span>
+                <span class="dimension-value">{{ healthScore.careActivityScore }}</span>
+              </div>
+              <el-progress :percentage="healthScore.careActivityScore" :color="'#F4D03F'" :stroke-width="8" :show-text="false" />
+            </div>
+          </div>
+        </div>
+        <div class="empty-state" v-else>
+          <div class="empty-icon">📊</div>
+          <div class="empty-text">暂无健康评分数据</div>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="状态记录" name="status-history">
+        <div v-if="statusHistory.length > 0" class="status-history-list">
+          <div class="status-history-item" v-for="record in statusHistory" :key="record.id">
+            <div class="history-icon">
+              {{ getStatusChangeReasonIcon(record.reason) }}
+            </div>
+            <div class="history-content">
+              <div class="history-change">
+                <el-tag size="small" :color="getStatusColor(record.oldStatus)" effect="dark" round>{{ statusLabel(record.oldStatus) }}</el-tag>
+                <span class="history-arrow">→</span>
+                <el-tag size="small" :color="getStatusColor(record.newStatus)" effect="dark" round>{{ statusLabel(record.newStatus) }}</el-tag>
+                <el-tag v-if="record.autoDetected" size="small" type="warning" effect="plain" round>自动</el-tag>
+                <el-tag v-else size="small" type="info" effect="plain" round>手动</el-tag>
+                <el-tag v-if="!record.accepted" size="small" type="danger" effect="plain" round>已忽略</el-tag>
+              </div>
+              <div class="history-reason">{{ record.reasonText }}</div>
+              <div class="history-time">{{ formatDate(record.createdAt, 'YYYY-MM-DD HH:mm') }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="empty-state" v-else>
+          <div class="empty-icon">📋</div>
+          <div class="empty-text">暂无状态变更记录</div>
+        </div>
+
+        <div class="manual-status-change" style="margin-top: 20px;">
+          <el-divider>手动变更状态</el-divider>
+          <div class="status-change-actions">
+            <el-button size="small" :type="plant?.status === 'healthy' ? 'success' : ''" @click="changeStatus('healthy')">🌿 茁壮成长</el-button>
+            <el-button size="small" :type="plant?.status === 'needsCare' ? 'warning' : ''" @click="changeStatus('needsCare')">⚠️ 需要照料</el-button>
+            <el-button size="small" :type="plant?.status === 'sick' ? 'danger' : ''" @click="changeStatus('sick')">🥀 状态不佳</el-button>
+            <el-button size="small" :type="plant?.status === 'dormant' ? 'info' : ''" @click="changeStatus('dormant')">💤 休眠期</el-button>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="showRecordDialog" title="添加养护记录" width="480px" destroy-on-close>
@@ -260,6 +352,8 @@ import { useAppStore } from '@/stores/app'
 import { formatDate, statusLabel, getStatusColor, sunlightLabel, difficultyLabel, careTypeLabel, getCareTypeColor, getPlantEmoji, compressImage, getDefaultTime } from '@/utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PasswordConfirmDialog from '@/components/PasswordConfirmDialog.vue'
+import { getHealthScoreLevel, getStatusChangeReasonIcon } from '@/utils/careAI'
+import type { Plant } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -289,6 +383,8 @@ const filteredRecords = computed(() => {
 
 const plantPhotos = computed(() => store.getPhotosByPlantId(plantId.value))
 const plantReminders = computed(() => store.getRemindersByPlantId(plantId.value))
+const healthScore = computed(() => store.getHealthScoreByPlantId(plantId.value))
+const statusHistory = computed(() => store.getStatusHistoryByPlantId(plantId.value))
 
 const recordForm = reactive({
   type: 'water' as 'water' | 'fertilize' | 'prune' | 'repot' | 'other',
@@ -408,6 +504,14 @@ const addReminder = () => {
 const completeReminder = (id: string) => {
   store.completeReminder(id)
   ElMessage.success('已完成')
+}
+
+const getHealthLevel = (score: number) => getHealthScoreLevel(score)
+
+const changeStatus = (newStatus: Plant['status']) => {
+  if (!plant.value || plant.value.status === newStatus) return
+  store.manualStatusChange(plantId.value, newStatus)
+  ElMessage.success(`状态已更新为"${statusLabel(newStatus)}"`)
 }
 
 const deleteReminder = (id: string) => {
@@ -647,6 +751,156 @@ onMounted(() => {
       align-items: center;
       gap: 8px;
     }
+  }
+
+  .health-score-section {
+    .score-overview {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding: 24px;
+      background: $cream-light;
+      border-radius: 16px;
+      text-align: center;
+
+      .score-ring {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        background: conic-gradient(var(--score-color) 0%, var(--score-color) calc(var(--score-pct, 0%) * 1%), $cream-dark calc(var(--score-pct, 0%) * 1%), $cream-dark 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        flex-shrink: 0;
+
+        &::before {
+          content: '';
+          position: absolute;
+          width: 96px;
+          height: 96px;
+          border-radius: 50%;
+          background: $cream-light;
+        }
+
+        .score-value {
+          position: relative;
+          font-size: 32px;
+          font-weight: 700;
+          color: $brown-dark;
+        }
+
+        .score-label {
+          position: relative;
+          font-size: 12px;
+          color: $brown-light;
+        }
+      }
+
+      .score-level-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        .level-icon {
+          font-size: 28px;
+        }
+
+        .level-text {
+          font-size: 18px;
+          font-weight: 600;
+        }
+      }
+    }
+
+    .score-dimensions {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+
+      .dimension-item {
+        .dimension-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 6px;
+
+          .dimension-name {
+            font-size: 14px;
+            color: $brown;
+          }
+
+          .dimension-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: $brown-dark;
+          }
+        }
+      }
+    }
+  }
+
+  .status-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .status-history-item {
+      display: flex;
+      gap: 14px;
+      padding: 14px 16px;
+      background: $cream;
+      border-radius: 12px;
+
+      .history-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: $cream-dark;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+
+      .history-content {
+        flex: 1;
+
+        .history-change {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+          flex-wrap: wrap;
+
+          .history-arrow {
+            color: $brown-light;
+            font-size: 16px;
+          }
+        }
+
+        .history-reason {
+          font-size: 13px;
+          color: $brown;
+          margin-bottom: 4px;
+          line-height: 1.5;
+        }
+
+        .history-time {
+          font-size: 12px;
+          color: $brown-light;
+        }
+      }
+    }
+  }
+
+  .status-change-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 }
 </style>

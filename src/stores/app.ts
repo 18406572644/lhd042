@@ -21,25 +21,11 @@ import type {
   CareScore,
   WateringAnalysis,
   CareStats,
-  SeasonalCareData,
-  PlantHealthAnalysis,
-  PlantCareFrequency,
-  PlantGrowthData,
-  CustomReportConfig,
-  CustomReport,
-  ReportSection
+  StatusChangeRecord,
+  PlantHealthScore,
+  UpcomingCareItem
 } from '@/types'
-import {
-  getSeason,
-  getSeasonLabel,
-  calculateAverageInterval,
-  calculateRollingInterval,
-  calculateConsistencyScore,
-  generateSeasonalSuggestions,
-  generateId,
-  getDefaultReportMetrics,
-  daysBetween
-} from '@/utils'
+import { generateId } from '@/utils'
 import {
   getFromStorage,
   setToStorage,
@@ -67,7 +53,9 @@ import {
   ACHIEVEMENTS_KEY,
   SUGGESTIONS_KEY,
   WARNINGS_KEY,
-  CARE_SCORE_KEY
+  CARE_SCORE_KEY,
+  STATUS_HISTORY_KEY,
+  HEALTH_SCORES_KEY
 } from '@/utils/storage'
 import {
   initAchievements,
@@ -76,8 +64,12 @@ import {
   calculateCareScore,
   updateAchievements,
   generateSuggestions,
-  generateWarnings
+  generateWarnings,
+  evaluateAllPlantsStatus,
+  calculateAllHealthScores,
+  getUpcomingCareItems
 } from '@/utils/careAI'
+import type { StatusEvaluationResult } from '@/utils/careAI'
 import { hashPassword, verifyPassword } from '@/utils/encryption'
 
 export const useAppStore = defineStore('app', {
@@ -113,11 +105,10 @@ export const useAppStore = defineStore('app', {
     careScore: null as CareScore | null,
     careStats: null as CareStats | null,
     wateringAnalyses: [] as WateringAnalysis[],
-    seasonalAnalyses: [] as SeasonalCareData[],
-    healthAnalyses: [] as PlantHealthAnalysis[],
-    careFrequencyData: [] as PlantCareFrequency[],
-    growthData: [] as PlantGrowthData[],
-    savedReports: [] as CustomReport[]
+    statusHistory: [] as StatusChangeRecord[],
+    plantHealthScores: [] as PlantHealthScore[],
+    upcomingCareItems: [] as UpcomingCareItem[],
+    pendingStatusChanges: [] as StatusEvaluationResult[]
   }),
 
   getters: {
@@ -297,265 +288,28 @@ export const useAppStore = defineStore('app', {
       return state.wateringAnalyses.find(w => w.plantId === plantId)
     },
 
-    getSeasonalAnalysis: (state) => (season: string) => {
-      return state.seasonalAnalyses.find(s => s.season === season)
+    getStatusHistoryByPlantId: (state) => (plantId: string) => {
+      return state.statusHistory
+        .filter(h => h.plantId === plantId)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     },
 
-    getHealthAnalysisByPlantId: (state) => (plantId: string) => {
-      return state.healthAnalyses.find(h => h.plantId === plantId)
+    getHealthScoreByPlantId: (state) => (plantId: string) => {
+      return state.plantHealthScores.find(h => h.plantId === plantId)
     },
 
-    getCareFrequencyByPlantId: (state) => (plantId: string) => {
-      return state.careFrequencyData.find(c => c.plantId === plantId)
+    recentStatusChanges: (state) => {
+      return [...state.statusHistory]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 20)
     },
 
-    getGrowthDataByPlantId: (state) => (plantId: string) => {
-      return state.growthData.find(g => g.plantId === plantId)
+    overdueCareItems: (state) => {
+      return state.upcomingCareItems.filter(i => i.urgency === 'overdue' || i.urgency === 'today')
     },
 
-    getSeasonalCareData: (state) => (): SeasonalCareData[] => {
-      const seasons: ('spring' | 'summer' | 'autumn' | 'winter')[] = ['spring', 'summer', 'autumn', 'winter']
-      return seasons.map(season => {
-        const seasonRecords = state.careRecords.filter(r => getSeason(r.date) === season)
-        const waterDates = seasonRecords.filter(r => r.type === 'water').map(r => r.date)
-        const fertilizeDates = seasonRecords.filter(r => r.type === 'fertilize').map(r => r.date)
-
-        const plantHealthCount = {
-          healthy: state.plants.filter(p => p.status === 'healthy').length,
-          needsCare: state.plants.filter(p => p.status === 'needsCare').length,
-          sick: state.plants.filter(p => p.status === 'sick').length,
-          dormant: state.plants.filter(p => p.status === 'dormant').length
-        }
-
-        const stats = {
-          waterCount: waterDates.length,
-          fertilizeCount: fertilizeDates.length,
-          plantHealthCount
-        }
-
-        return {
-          season,
-          seasonLabel: getSeasonLabel(season),
-          waterCount: waterDates.length,
-          fertilizeCount: fertilizeDates.length,
-          pruneCount: seasonRecords.filter(r => r.type === 'prune').length,
-          repotCount: seasonRecords.filter(r => r.type === 'repot').length,
-          averageWaterInterval: calculateAverageInterval(waterDates),
-          averageFertilizeInterval: calculateAverageInterval(fertilizeDates),
-          plantHealthCount,
-          suggestions: generateSeasonalSuggestions(season, stats)
-        }
-      })
-    },
-
-    getPlantHealthAnalysis: (state) => (plantId: string): PlantHealthAnalysis | null => {
-      const plant = state.plants.find(p => p.id === plantId)
-      if (!plant) return null
-
-      const plantRecords = state.careRecords.filter(r => r.plantId === plantId)
-      const waterRecords = plantRecords.filter(r => r.type === 'water').sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      )
-      const fertilizeRecords = plantRecords.filter(r => r.type === 'fertilize').sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      )
-
-      const waterDates = waterRecords.map(r => r.date)
-      const fertilizeDates = fertilizeRecords.map(r => r.date)
-
-      const waterIntervals: number[] = []
-      for (let i = 1; i < waterDates.length; i++) {
-        waterIntervals.push(daysBetween(waterDates[i - 1], waterDates[i]))
-      }
-
-      const fertilizeIntervals: number[] = []
-      for (let i = 1; i < fertilizeDates.length; i++) {
-        fertilizeIntervals.push(daysBetween(fertilizeDates[i - 1], fertilizeDates[i]))
-      }
-
-      const wateringConsistency = calculateConsistencyScore(waterIntervals, plant.wateringInterval)
-      const fertilizingConsistency = calculateConsistencyScore(fertilizeIntervals, plant.fertilizingInterval)
-
-      const statusScores: Record<string, number> = {
-        healthy: 100,
-        needsCare: 60,
-        sick: 30,
-        dormant: 50
-      }
-      const statusScore = statusScores[plant.status] || 50
-
-      const photoCount = state.photos.filter(p => p.plantId === plantId).length
-      const photoScore = Math.min(100, photoCount * 10)
-
-      const totalDays = daysBetween(plant.acquiredDate, new Date())
-      const recordDensity = totalDays > 0 ? (plantRecords.length / totalDays) * 100 : 0
-      const careActivityScore = Math.min(100, recordDensity * 30)
-
-      const completedReminders = state.reminders.filter(r =>
-        r.plantId === plantId && r.completed
-      ).length
-      const totalReminders = state.reminders.filter(r => r.plantId === plantId).length
-      const reminderScore = totalReminders > 0
-        ? Math.round((completedReminders / totalReminders) * 100)
-        : 100
-
-      const dimensions = [
-        {
-          name: 'wateringConsistency',
-          label: '浇水规律',
-          value: wateringConsistency,
-          maxValue: 100,
-          description: '浇水间隔的规律性评分'
-        },
-        {
-          name: 'fertilizingConsistency',
-          label: '施肥规律',
-          value: fertilizingConsistency,
-          maxValue: 100,
-          description: '施肥间隔的规律性评分'
-        },
-        {
-          name: 'statusStability',
-          label: '状态稳定性',
-          value: statusScore,
-          maxValue: 100,
-          description: '植物当前健康状态评分'
-        },
-        {
-          name: 'careActivity',
-          label: '养护活跃度',
-          value: careActivityScore,
-          maxValue: 100,
-          description: '养护记录的频率评分'
-        },
-        {
-          name: 'photoDocumentation',
-          label: '记录完整性',
-          value: photoScore,
-          maxValue: 100,
-          description: '照片记录的完整度评分'
-        },
-        {
-          name: 'reminderCompletion',
-          label: '提醒完成率',
-          value: reminderScore,
-          maxValue: 100,
-          description: '养护提醒的完成率评分'
-        }
-      ]
-
-      const overallScore = Math.round(
-        dimensions.reduce((sum, d) => sum + d.value, 0) / dimensions.length
-      )
-
-      return {
-        plantId,
-        plantName: plant.name,
-        overallScore,
-        dimensions,
-        lastUpdated: new Date().toISOString()
-      }
-    },
-
-    getPlantCareFrequency: (state) => (plantId: string, days: number = 90): PlantCareFrequency | null => {
-      const plant = state.plants.find(p => p.id === plantId)
-      if (!plant) return null
-
-      const plantRecords = state.careRecords.filter(r => r.plantId === plantId)
-      const today = new Date()
-      const startDate = new Date(today.getTime() - days * 24 * 60 * 60 * 1000)
-
-      const dailyData: Map<string, { waterCount: number; fertilizeCount: number; waterDates: string[]; fertilizeDates: string[] }> = new Map()
-
-      for (let i = 0; i < days; i++) {
-        const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000)
-        const dateStr = d.toISOString().split('T')[0]
-        dailyData.set(dateStr, { waterCount: 0, fertilizeCount: 0, waterDates: [], fertilizeDates: [] })
-      }
-
-      plantRecords.forEach(record => {
-        const recordDate = record.date.split('T')[0]
-        if (dailyData.has(recordDate)) {
-          const data = dailyData.get(recordDate)!
-          if (record.type === 'water') {
-            data.waterCount++
-            data.waterDates.push(record.date)
-          } else if (record.type === 'fertilize') {
-            data.fertilizeCount++
-            data.fertilizeDates.push(record.date)
-          }
-        }
-      })
-
-      const allWaterDates = plantRecords.filter(r => r.type === 'water').map(r => r.date).sort()
-      const allFertilizeDates = plantRecords.filter(r => r.type === 'fertilize').map(r => r.date).sort()
-      const rollingWaterIntervals = calculateRollingInterval(allWaterDates, 7)
-      const rollingFertilizeIntervals = calculateRollingInterval(allFertilizeDates, 7)
-
-      const dateArray = Array.from(dailyData.keys()).sort()
-      const data = dateArray.map((date, index) => {
-        const daily = dailyData.get(date)!
-        return {
-          date,
-          waterCount: daily.waterCount,
-          fertilizeCount: daily.fertilizeCount,
-          rollingWaterInterval: rollingWaterIntervals[Math.min(index, rollingWaterIntervals.length - 1)] || 0,
-          rollingFertilizeInterval: rollingFertilizeIntervals[Math.min(index, rollingFertilizeIntervals.length - 1)] || 0
-        }
-      })
-
-      return {
-        plantId,
-        plantName: plant.name,
-        data
-      }
-    },
-
-    getPlantGrowthData: (state) => (plantId: string): PlantGrowthData | null => {
-      const plant = state.plants.find(p => p.id === plantId)
-      if (!plant) return null
-
-      const plantPhotos = state.photos
-        .filter(p => p.plantId === plantId && (p.height != null || p.leafCount != null))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-      if (plantPhotos.length === 0) return null
-
-      const data = plantPhotos.map((photo, index) => {
-        let growthRate: number | null = null
-        if (index > 0 && photo.height != null && plantPhotos[index - 1].height != null) {
-          const prevHeight = plantPhotos[index - 1].height!
-          const currHeight = photo.height!
-          const daysDiff = daysBetween(plantPhotos[index - 1].date, photo.date)
-          if (daysDiff > 0) {
-            growthRate = Math.round(((currHeight - prevHeight) / daysDiff) * 100) / 100
-          }
-        }
-        return {
-          date: photo.date,
-          height: photo.height ?? null,
-          leafCount: photo.leafCount ?? null,
-          growthRate
-        }
-      })
-
-      const heightData = data.filter(d => d.height != null).map(d => d.height!)
-      const totalGrowth = heightData.length >= 2
-        ? Math.round((heightData[heightData.length - 1] - heightData[0]) * 10) / 10
-        : 0
-
-      const growthRates = data.filter(d => d.growthRate != null).map(d => d.growthRate!)
-      const averageGrowthRate = growthRates.length > 0
-        ? Math.round((growthRates.reduce((a, b) => a + b, 0) / growthRates.length) * 100) / 100
-        : 0
-
-      return {
-        plantId,
-        plantName: plant.name,
-        data,
-        totalGrowth,
-        averageGrowthRate
-      }
+    hasPendingStatusChanges: (state) => {
+      return state.pendingStatusChanges.length > 0
     }
   },
 
@@ -589,6 +343,8 @@ export const useAppStore = defineStore('app', {
       this.suggestions = loadFn(SUGGESTIONS_KEY, [])
       this.warnings = loadFn(WARNINGS_KEY, [])
       this.careScore = loadFn(CARE_SCORE_KEY, null)
+      this.statusHistory = loadFn(STATUS_HISTORY_KEY, [])
+      this.plantHealthScores = loadFn(HEALTH_SCORES_KEY, [])
     },
 
     saveData(key: string, data: any) {
@@ -1155,7 +911,7 @@ export const useAppStore = defineStore('app', {
         }
       }
 
-      const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY, ACHIEVEMENTS_KEY, SUGGESTIONS_KEY, WARNINGS_KEY, CARE_SCORE_KEY]
+      const keys = [PLANTS_KEY, CARE_KEY, PHOTOS_KEY, REMINDERS_KEY, KNOWLEDGE_KEY, DIARY_KEY, ACHIEVEMENTS_KEY, SUGGESTIONS_KEY, WARNINGS_KEY, CARE_SCORE_KEY, STATUS_HISTORY_KEY, HEALTH_SCORES_KEY]
       keys.forEach(key => localStorage.removeItem(key))
       this.plants = []
       this.careRecords = []
@@ -1169,6 +925,10 @@ export const useAppStore = defineStore('app', {
       this.careScore = null
       this.careStats = null
       this.wateringAnalyses = []
+      this.statusHistory = []
+      this.plantHealthScores = []
+      this.upcomingCareItems = []
+      this.pendingStatusChanges = []
       this.addOperationLog('data.clear', '清除了所有数据')
       return true
     },
@@ -1199,16 +959,17 @@ export const useAppStore = defineStore('app', {
       this.careScore = calculateCareScore(this.careStats, this.plants, this.careRecords)
       this.saveData(CARE_SCORE_KEY, this.careScore)
 
-      this.seasonalAnalyses = this.getSeasonalCareData()
-      this.healthAnalyses = this.plants
-        .map(p => this.getPlantHealthAnalysis(p.id))
-        .filter(Boolean) as PlantHealthAnalysis[]
-      this.careFrequencyData = this.plants
-        .map(p => this.getPlantCareFrequency(p.id))
-        .filter(Boolean) as PlantCareFrequency[]
-      this.growthData = this.plants
-        .map(p => this.getPlantGrowthData(p.id))
-        .filter(Boolean) as PlantGrowthData[]
+      this.plantHealthScores = calculateAllHealthScores(
+        this.plants,
+        this.careRecords,
+        this.statusHistory,
+        this.wateringAnalyses
+      )
+      this.saveData(HEALTH_SCORES_KEY, this.plantHealthScores)
+
+      this.upcomingCareItems = getUpcomingCareItems(this.plants, this.careRecords)
+
+      this.pendingStatusChanges = evaluateAllPlantsStatus(this.plants, this.careRecords)
 
       const oldAchievements = [...this.achievements]
       this.achievements = updateAchievements(
@@ -1249,127 +1010,6 @@ export const useAppStore = defineStore('app', {
         )
         this.saveData(WARNINGS_KEY, this.warnings)
       }
-    },
-
-    generateCustomReport(config: CustomReportConfig): CustomReport {
-      const sections: ReportSection[] = []
-      const enabledMetrics = config.metrics.filter(m => m.enabled)
-
-      if (enabledMetrics.find(m => m.key === 'totalPlants')) {
-        sections.push({
-          title: '植物概览',
-          type: 'text',
-          content: {
-            totalPlants: this.plants.length,
-            healthyPlants: this.plants.filter(p => p.status === 'healthy').length,
-            needsCarePlants: this.plants.filter(p => p.status === 'needsCare').length,
-            sickPlants: this.plants.filter(p => p.status === 'sick').length,
-            dormantPlants: this.plants.filter(p => p.status === 'dormant').length
-          }
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'totalRecords')) {
-        const filteredRecords = this.careRecords.filter(r =>
-          r.date >= config.dateRange.start && r.date <= config.dateRange.end
-        )
-        sections.push({
-          title: '养护记录统计',
-          type: 'table',
-          content: {
-            totalRecords: filteredRecords.length,
-            waterCount: filteredRecords.filter(r => r.type === 'water').length,
-            fertilizeCount: filteredRecords.filter(r => r.type === 'fertilize').length,
-            pruneCount: filteredRecords.filter(r => r.type === 'prune').length,
-            repotCount: filteredRecords.filter(r => r.type === 'repot').length
-          }
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'waterFrequency')) {
-        const frequencyData = config.plantIds.map(pid => this.getPlantCareFrequency(pid)).filter(Boolean)
-        sections.push({
-          title: '浇水频率分析',
-          type: 'chart',
-          content: frequencyData
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'fertilizeFrequency')) {
-        const frequencyData = config.plantIds.map(pid => this.getPlantCareFrequency(pid)).filter(Boolean)
-        sections.push({
-          title: '施肥频率分析',
-          type: 'chart',
-          content: frequencyData
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'growthTrend')) {
-        const growthData = config.plantIds.map(pid => this.getPlantGrowthData(pid)).filter(Boolean)
-        sections.push({
-          title: '生长趋势分析',
-          type: 'chart',
-          content: growthData
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'healthScore')) {
-        const healthData = config.plantIds.map(pid => this.getPlantHealthAnalysis(pid)).filter(Boolean)
-        sections.push({
-          title: '健康度分析',
-          type: 'chart',
-          content: healthData
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'seasonalAnalysis')) {
-        sections.push({
-          title: '季节性养护分析',
-          type: 'chart',
-          content: this.getSeasonalCareData()
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'careStats') && this.careStats) {
-        sections.push({
-          title: '养护综合统计',
-          type: 'table',
-          content: this.careStats
-        })
-      }
-
-      if (enabledMetrics.find(m => m.key === 'diaryStats')) {
-        const filteredDiaries = this.diaryEntries.filter(d =>
-          d.date >= config.dateRange.start && d.date <= config.dateRange.end
-        )
-        const moodStats: Record<string, number> = {}
-        filteredDiaries.forEach(d => {
-          moodStats[d.mood] = (moodStats[d.mood] || 0) + 1
-        })
-        sections.push({
-          title: '日记统计',
-          type: 'table',
-          content: {
-            totalDiaries: filteredDiaries.length,
-            moodStats
-          }
-        })
-      }
-
-      const report: CustomReport = {
-        id: generateId(),
-        title: config.title,
-        createdAt: new Date().toISOString(),
-        sections,
-        config
-      }
-
-      this.savedReports.push(report)
-      return report
-    },
-
-    deleteReport(reportId: string) {
-      this.savedReports = this.savedReports.filter(r => r.id !== reportId)
     },
 
     dismissSuggestion(id: string) {
@@ -1455,6 +1095,92 @@ export const useAppStore = defineStore('app', {
       } else {
         this.analyzeSmartCare()
       }
+    },
+
+    acceptStatusChange(plantId: string) {
+      const change = this.pendingStatusChanges.find(c => c.plantId === plantId)
+      if (!change) return
+
+      const plant = this.plants.find(p => p.id === plantId)
+      if (!plant) return
+
+      const oldStatus = plant.status
+      this.updatePlant(plantId, { status: change.suggestedStatus })
+
+      const record: StatusChangeRecord = {
+        id: generateId(),
+        plantId,
+        plantName: change.plantName,
+        oldStatus: change.currentStatus,
+        newStatus: change.suggestedStatus,
+        reason: change.reason,
+        reasonText: change.reasonText,
+        autoDetected: true,
+        accepted: true,
+        createdAt: new Date().toISOString()
+      }
+      this.statusHistory.unshift(record)
+      this.saveData(STATUS_HISTORY_KEY, this.statusHistory)
+
+      this.pendingStatusChanges = this.pendingStatusChanges.filter(c => c.plantId !== plantId)
+
+      this.addOperationLog('plant.update', `自动更新植物状态：${change.plantName} 从"${oldStatus}"变为"${change.suggestedStatus}"`, {
+        plantId,
+        reason: change.reason,
+        autoAccepted: true
+      })
+    },
+
+    rejectStatusChange(plantId: string) {
+      const change = this.pendingStatusChanges.find(c => c.plantId === plantId)
+      if (!change) return
+
+      const record: StatusChangeRecord = {
+        id: generateId(),
+        plantId,
+        plantName: change.plantName,
+        oldStatus: change.currentStatus,
+        newStatus: change.suggestedStatus,
+        reason: change.reason,
+        reasonText: change.reasonText,
+        autoDetected: true,
+        accepted: false,
+        createdAt: new Date().toISOString()
+      }
+      this.statusHistory.unshift(record)
+      this.saveData(STATUS_HISTORY_KEY, this.statusHistory)
+
+      this.pendingStatusChanges = this.pendingStatusChanges.filter(c => c.plantId !== plantId)
+    },
+
+    manualStatusChange(plantId: string, newStatus: Plant['status'], reason?: string) {
+      const plant = this.plants.find(p => p.id === plantId)
+      if (!plant) return
+
+      const oldStatus = plant.status
+      if (oldStatus === newStatus) return
+
+      this.updatePlant(plantId, { status: newStatus })
+
+      const record: StatusChangeRecord = {
+        id: generateId(),
+        plantId,
+        plantName: plant.name,
+        oldStatus,
+        newStatus,
+        reason: 'manual',
+        reasonText: reason || `手动将状态从"${oldStatus}"改为"${newStatus}"`,
+        autoDetected: false,
+        accepted: true,
+        createdAt: new Date().toISOString()
+      }
+      this.statusHistory.unshift(record)
+      this.saveData(STATUS_HISTORY_KEY, this.statusHistory)
+
+      this.addOperationLog('plant.update', `手动更新植物状态：${plant.name} 从"${oldStatus}"变为"${newStatus}"`, {
+        plantId,
+        reason: 'manual'
+      })
     }
   }
 })
